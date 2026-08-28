@@ -29,6 +29,19 @@ Ad-hoc UTM tagging produces unjoinable campaign names, silent duplicates, and re
 - Supported `/api/v1` surface with bearer scopes, stable error envelopes, CORS allowlisting, OpenAPI, and idempotent single-link issuance
 - Authenticated remote MCP endpoint with read, preview, search, campaign/initiative creation, single issuance, and batch issuance tools
 
+## Ways to use it
+
+All entry points use the same server-side generation and registry service, so validation, identifiers, duplicate rules, authorization, and audit behavior stay consistent.
+
+| Entry point | Best for | What it adds |
+|---|---|---|
+| **Web application** | One-off links, bulk grids, spreadsheet paste, CSV upload, administration, and investigations | Full guided workflow, previews, exception handling, registry search, exports, and admin controls |
+| **Chrome extension** | Creating a governed link while working in HubSpot, Google Ads, LinkedIn, Meta, Reddit, CM360, or another browser-based platform | Captures the current page or a selected link, then previews, issues, logs, and copies the URL from a Manifest V3 side panel without leaving the platform workflow |
+| **Versioned API** | Repeatable system integrations and automation | Supported `/api/v1` endpoints, scoped bearer tokens, stable error envelopes, OpenAPI documentation, CORS allowlisting, and idempotent issuance |
+| **MCP server** | Governed AI-assisted and conversational workflows | Authenticated tools for reference data, preview, search, campaign/initiative creation, and single or batch issuance; writes remain attributable to the user and normal audit trail |
+
+The Chrome extension, API, and MCP server do not contain separate UTM logic. They call the same preview and issuance service as the web app, preventing interface-specific rules or records from drifting apart.
+
 ## Architecture
 
 One registry, one generation API, multiple entry points:
@@ -64,6 +77,34 @@ One registry, one generation API, multiple entry points:
 ```
 
 Issued URLs are self-describing; clicks never touch this system.
+
+## Reporting and measurement options
+
+V2 is designed to expand reporting choices without changing the canonical identity contract:
+
+- **Campaign reporting:** every campaign receives an immutable `rpc_...` ID carried in the standard `utm_id` parameter. GA4 can report on that campaign ID natively, and warehouse models can join on exact equality instead of campaign-name substrings.
+- **Initiative reporting:** an optional `rpi_...` initiative groups multiple campaigns into a larger launch, program, audience, product, or GTM motion. Teams can report at initiative level either by capturing the optional `rp_initiative_id` parameter or by recovering the campaign-to-initiative relationship from registry snapshots using `utm_id`.
+- **Link and placement reporting:** the optional `rp_link_id` identifies the exact governed URL or placement, enabling more granular analysis than campaign-level UTMs alone.
+- **HubSpot reporting:** HubSpot campaign GUIDs are synchronized asynchronously and stored as external mappings; they supplement rather than replace the Runpod campaign ID.
+- **Warehouse reporting:** versioned campaign, initiative, and link snapshots support conformed dimensions, historical reconstruction, reconciliation, and reporting without querying a live application API.
+- **Operational access:** the web registry, exports, versioned API, and MCP search tools provide additional ways to inspect and use governed campaign metadata.
+
+These options are additive. Human-readable UTM names remain available for interpretation, while stable IDs provide durable joins and allow campaign-, initiative-, or link-level reporting according to the business question. See the [reporting contract](docs/reporting-contract.md) for GA4 setup, warehouse mappings, recovery paths, and sample SQL.
+
+## Durability and failure isolation
+
+The system assumes individual components will sometimes fail and isolates those failures so they do not cascade:
+
+- **No click-time dependency:** issued URLs are direct and self-describing. An application, database, integration, extension, API, or MCP outage cannot interrupt traffic through existing links.
+- **Fail-closed issuance:** a new URL is returned only after its registry record, identifiers, and audit event commit successfully in one database transaction.
+- **Asynchronous integrations:** HubSpot and warehouse work is written to a transactional outbox, retried with exponential backoff, dead-lettered visibly, and reconcilable. An integration outage does not block link issuance.
+- **Idempotent retries:** fingerprints, database constraints, outbox idempotency keys, and API idempotency prevent duplicate records when clients or workers retry.
+- **Multiple reporting recovery paths:** raw identifiers remain in issued URLs and registry records, versioned snapshots feed the warehouse, and initiative membership can be reconstructed from `utm_id` even when an optional custom parameter was not captured.
+- **Versioned, reversible configuration:** taxonomy, presets, destination policies, and settings are versioned and audited. Bad configuration is rolled back by applying the prior value as a new audited change; affected links remain identifiable by configuration version.
+- **Separate application and data recovery:** operators can promote a previous application build for bad code releases, use PostgreSQL point-in-time recovery for data incidents, and use config/audit exports for comparison and reconstruction.
+- **Health and reconciliation controls:** the health endpoint, cron/outbox status, dead-letter alerts, and reconciliation runs make silent partial failure visible.
+
+Durability comes from independent failure domains and tested recovery paths—not from assuming every dependency will always be available. See the [deployment guide](docs/deployment-vercel.md) and [administrator incident procedures](docs/admin-manual.md#12-incident-procedures).
 
 ## Tech stack
 
@@ -138,9 +179,15 @@ Health check: `GET /api/health` (checks API + database).
 
 ## Failure domains
 
-| Failure | Existing links | New issuance | Notes |
+| Failure | Existing links | New issuance | Recovery / containment |
 |---|---|---|---|
-| Registry (DB) down | Unaffected — URLs are self-describing | Blocked (fails closed) | No URL is ever handed out without a committed record |
-| HubSpot down / token missing | Unaffected | Unaffected | Sync events queue in the outbox; retried with backoff; dead-lettered after max attempts; reconcilable |
-| Warehouse ingestion down | Unaffected | Unaffected | Snapshot events queue in the outbox; reconciliation flags missing snapshots |
-| Outbox worker (cron) down | Unaffected | Unaffected | Events accumulate as `pending`; processed when the worker resumes or via manual run |
+| Web application or bad deployment | Unaffected | Temporarily unavailable or paused | Promote the previous verified build; the database and existing links are untouched |
+| Registry database unavailable | Unaffected — URLs are self-describing | Blocked (fails closed) | Restore service/fail over; no URL is handed out without a committed registry record |
+| Bad database migration or data change | Unaffected | Paused until integrity is verified | Use provider point-in-time recovery only for data incidents, then reconcile HubSpot and warehouse state |
+| Bad taxonomy, preset, destination, or settings change | Unaffected | Pause affected issuance | Reapply the audited prior configuration; identify affected links by configuration version |
+| HubSpot unavailable or token missing | Unaffected | Unaffected | Events queue in the outbox, retry with backoff, dead-letter visibly, and remain reconcilable |
+| Warehouse ingestion unavailable | Unaffected | Unaffected | Snapshot events queue; reconciliation identifies and backfills missing snapshots |
+| Outbox worker or cron unavailable | Unaffected | Unaffected | Events accumulate as `pending` and process when the worker resumes or through a manual run |
+| Chrome extension unavailable | Unaffected | Web, API, or MCP entry points remain available | The extension is a client of the shared service, not a separate registry |
+| API or MCP client unavailable | Unaffected | Other approved entry points remain available | All interfaces share the same records and generation rules |
+| Optional GA4 custom parameter not captured | Unaffected | Unaffected | Recover initiative membership from `utm_id` through registry/warehouse campaign mappings |

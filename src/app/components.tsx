@@ -1,0 +1,298 @@
+"use client";
+
+/**
+ * Shared client components: Nav (with dev identity switcher), Badge,
+ * CopyButton, status messages, validation finding lists, and pagination.
+ */
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { api, errText, type Finding, type Session } from "./lib";
+
+// ------------------------------------------------------------ useSession
+
+export function useSession(): { session: Session | null; loading: boolean } {
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    api<{ session: Session | null }>("/api/session")
+      .then((d) => {
+        if (!cancelled) setSession(d.session);
+      })
+      .catch(() => {
+        if (!cancelled) setSession(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return { session, loading };
+}
+
+// ------------------------------------------------------------------- Nav
+
+const NAV_ITEMS: [string, string][] = [
+  ["/", "Builder"],
+  ["/bulk", "Bulk"],
+  ["/registry", "Registry"],
+  ["/initiatives", "Initiatives"],
+  ["/admin", "Admin"],
+  ["/admin/audit", "Audit"],
+];
+
+const DEV_IDENTITIES = [
+  "dev-admin@runpod.io",
+  "dev-user@runpod.io",
+  "dev-investigator@runpod.io",
+];
+
+export function Nav() {
+  const pathname = usePathname() ?? "/";
+  const { session, loading } = useSession();
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState("");
+
+  // Longest matching prefix wins so /admin/audit doesn't also light up /admin.
+  const activeHref = NAV_ITEMS.reduce<string>((best, [href]) => {
+    const matches = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+    return matches && href.length > best.length ? href : best;
+  }, "");
+
+  const switchIdentity = useCallback(async (email: string) => {
+    if (!email) return;
+    setSwitching(true);
+    setSwitchError("");
+    try {
+      await api("/api/session", { method: "POST", body: JSON.stringify({ email }) });
+      window.location.reload();
+    } catch (err) {
+      setSwitchError(errText(err));
+      setSwitching(false);
+    }
+  }, []);
+
+  const identities = session && !DEV_IDENTITIES.includes(session.email)
+    ? [session.email, ...DEV_IDENTITIES]
+    : DEV_IDENTITIES;
+
+  return (
+    <header className="nav">
+      <div className="nav-inner">
+        <Link href="/" className="nav-brand">
+          Runpod UTM Registry
+        </Link>
+        {NAV_ITEMS.map(([href, label]) => (
+          <Link
+            key={href}
+            href={href}
+            className={`nav-link${href === activeHref ? " active" : ""}`}
+            aria-current={href === activeHref ? "page" : undefined}
+          >
+            {label}
+          </Link>
+        ))}
+        <span className="nav-spacer" />
+        <div className="identity">
+          {loading ? (
+            <span aria-live="polite">Loading identity…</span>
+          ) : session ? (
+            <>
+              <span className="role-chip">{session.role}</span>
+              <label htmlFor="identity-switcher" className="hint" style={{ margin: 0 }}>
+                Identity
+              </label>
+              <select
+                id="identity-switcher"
+                value={session.email}
+                disabled={switching}
+                onChange={(e) => void switchIdentity(e.target.value)}
+              >
+                {identities.map((email) => (
+                  <option key={email} value={email}>
+                    {email}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : (
+            <>
+              <span>No session.</span>
+              <label htmlFor="identity-switcher" className="hint" style={{ margin: 0 }}>
+                Switch to
+              </label>
+              <select
+                id="identity-switcher"
+                value=""
+                disabled={switching}
+                onChange={(e) => void switchIdentity(e.target.value)}
+              >
+                <option value="">Pick a dev identity…</option>
+                {DEV_IDENTITIES.map((email) => (
+                  <option key={email} value={email}>
+                    {email}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {switchError ? (
+            <span role="alert" className="small" style={{ color: "var(--err)" }}>
+              {switchError}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ----------------------------------------------------------------- Badge
+
+const BADGE_TONES: Record<string, string> = {
+  issued: "ok",
+  synced: "ok",
+  succeeded: "ok",
+  verified: "ok",
+  active: "ok",
+  approved: "ok",
+  passed_syntactic: "ok",
+  completed: "ok",
+  passed: "ok",
+  draft: "muted",
+  pending: "muted",
+  planned: "muted",
+  unvalidated: "muted",
+  retired: "muted",
+  disabled: "muted",
+  archived: "muted",
+  inactive: "muted",
+  processing: "info",
+  syncing: "info",
+  info: "info",
+  exception: "warn",
+  warnings: "warn",
+  warning: "warn",
+  completed_with_errors: "warn",
+  deprecated: "warn",
+  skipped_duplicate: "warn",
+  detached: "warn",
+  failed: "err",
+  dead: "err",
+  error: "err",
+};
+
+export function Badge({ value, children }: { value: string; children?: ReactNode }) {
+  const tone = BADGE_TONES[value] ?? "muted";
+  return <span className={`badge badge-${tone}`}>{children ?? value.replace(/_/g, " ")}</span>;
+}
+
+// ------------------------------------------------------------ CopyButton
+
+export function CopyButton({ text, label }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context): fall back.
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }, [text]);
+  return (
+    <button type="button" className="btn-small" onClick={() => void copy()}>
+      <span aria-live="polite">{copied ? "Copied" : label ?? "Copy"}</span>
+    </button>
+  );
+}
+
+// -------------------------------------------------------------- messages
+
+export function Msg({
+  kind,
+  children,
+}: {
+  kind: "error" | "success" | "info";
+  children: ReactNode;
+}) {
+  if (children === null || children === undefined || children === "") return null;
+  return (
+    <div
+      className={`msg msg-${kind}`}
+      role={kind === "error" ? "alert" : "status"}
+      aria-live="polite"
+    >
+      {children}
+    </div>
+  );
+}
+
+export function FindingList({ findings }: { findings: Finding[] }) {
+  if (!findings.length) return null;
+  return (
+    <ul className="findings" aria-live="polite">
+      {findings.map((f, i) => (
+        <li key={`${f.code}-${f.field ?? ""}-${i}`} className={`finding-${f.severity}`}>
+          <strong>{f.severity === "error" ? "Error" : "Warning"}</strong>
+          {f.field ? <span className="mono"> [{f.field}]</span> : null} {f.message}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ----------------------------------------------------------------- Pager
+
+export function Pager({
+  page,
+  pageSize,
+  total,
+  onPage,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPage: (page: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  return (
+    <div className="pager">
+      <button type="button" className="btn-small" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        ← Previous
+      </button>
+      <span aria-live="polite">
+        Page {page} of {pages} ({total} total)
+      </span>
+      <button
+        type="button"
+        className="btn-small"
+        disabled={page >= pages}
+        onClick={() => onPage(page + 1)}
+      >
+        Next →
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------- JSON details
+
+export function JsonDetails({ label, value }: { label: string; value: unknown }) {
+  if (value === null || value === undefined) return <span className="muted">—</span>;
+  return (
+    <details className="json-details">
+      <summary>{label}</summary>
+      <pre>{JSON.stringify(value, null, 2)}</pre>
+    </details>
+  );
+}

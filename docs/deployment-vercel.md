@@ -33,6 +33,7 @@ Requirements regardless of provider:
 | `OUTBOX_PROCESS_TOKEN` | Production, Preview | `<long random secret>` | Bearer token protecting `/api/outbox/process`. Required — the route rejects everything when no token is configured. |
 | `CRON_SECRET` | Production | `<long random secret>` | Vercel automatically sends this as `Authorization: Bearer` on cron invocations; the route accepts either this or `OUTBOX_PROCESS_TOKEN`. |
 | `HUBSPOT_ACCESS_TOKEN` | Production | `<HubSpot private-app token>` | Optional at launch: without it, HubSpot syncs stay queued/failed in the outbox and everything else works. |
+| `EXTENSION_IDS` | Production | `<32-character Chrome extension ID>` | Required for the production extension PKCE redirect and CORS. Comma-separated only during a controlled ID transition. |
 
 Reference: `.env.example`.
 
@@ -68,6 +69,7 @@ The seed is idempotent (no-op once `config_versions` has a row). It installs def
 - Deploy on an **internal Runpod domain**; this is an internal tool and must not be publicly reachable without SSO.
 - HTTPS is mandatory (Vercel default). The dev identity cookie is set `secure` in production, but production must use SSO anyway; ensure the SSO session mechanism uses `Secure; HttpOnly; SameSite` cookies.
 - If fronted by an access proxy (e.g. Cloudflare Access / IdP-aware proxy), that proxy's signed assertion can be the SSO verification input (§4).
+- Keep `/api/v1` and `/api/mcp` behind the same HTTPS host. They authenticate bearer tokens server-side; the extension receives CORS only when its ID appears in `EXTENSION_IDS`.
 
 ## 8. Outbox processing (Vercel cron)
 
@@ -121,11 +123,15 @@ Also take periodic config exports (`GET /api/admin/export`) as a lightweight, di
 8. Trigger `POST /api/outbox/process` with the bearer token → `200` with a result summary
 9. `GET /api/admin/audit` (as admin) shows the issuance events
 10. Retire the test link (`DELETE /api/links/{id}?reason=smoke-test`)
+11. Create a seven-day test token under **API access**; verify `/api/v1/session`, then revoke it and verify the same request returns 401
+12. From the allowlisted extension, capture a current page, preview, issue, and open the resulting registry record
+13. Connect an MCP client to `/api/mcp`; list tools and call `utm_list_reference_data` before attempting any write
 
 ## 12. Production readiness checklist
 
 - [ ] Runpod-approved PostgreSQL provider provisioned, PITR enabled and tested
 - [ ] `DATABASE_URL`, `AUTH_PROVIDER=sso`, `OUTBOX_PROCESS_TOKEN`, `CRON_SECRET` set in Production env
+- [ ] Private/managed Chrome extension published; assigned ID set in `EXTENSION_IDS`
 - [ ] `ssoProvider()` implemented against the approved IdP; client-header spoofing verified impossible
 - [ ] `ALLOW_DEV_AUTH` **not** set anywhere in production
 - [ ] Migrations applied via explicit release step; seed run once; dev identities deactivated
@@ -136,6 +142,7 @@ Also take periodic config exports (`GET /api/admin/export`) as a lightweight, di
 - [ ] Internal domain + SSO gate verified from outside the network
 - [ ] Config export taken and stored
 - [ ] Smoke test (§11) passed
+- [ ] API/MCP tokens have an owner, expiry/rotation policy, and secret-storage standard
 
 ## 13. Runpod approval dependencies
 
@@ -146,3 +153,5 @@ Explicitly blocked on internal approval (tracked in [decisions.md](decisions.md)
 3. **HubSpot private-app token** issuance and scope review
 4. **Internal domain** allocation and network policy
 5. **Monitoring/alerting ownership** — which team receives dead-letter and reconciliation alerts
+6. **Extension distribution** — private Chrome Web Store vs. managed enterprise deployment, plus owner/release process
+7. **MCP authentication target** — personal tokens are implemented; organization-standard OAuth remains the production maturity path

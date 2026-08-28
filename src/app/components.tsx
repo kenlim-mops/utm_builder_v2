@@ -40,6 +40,7 @@ const NAV_ITEMS: [string, string][] = [
   ["/bulk", "Bulk"],
   ["/registry", "Registry"],
   ["/initiatives", "Initiatives"],
+  ["/settings/access-tokens", "API access"],
   ["/admin", "Admin"],
   ["/admin/audit", "Audit"],
 ];

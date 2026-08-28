@@ -119,6 +119,14 @@ Investigators can read runs; only admins trigger them.
 
 ## 9. Audit investigations
 
+### API, extension, and MCP access
+
+- Users create and revoke personal API/MCP tokens under **API access**. Plaintext is shown once; only a hash is stored. Each token is user-scoped, expiring, and its use remains attributable through normal audit events.
+- Browser-extension tokens are issued through the SSO + PKCE flow, expire after eight hours, and are visible/revocable in the same token list.
+- Set `EXTENSION_IDS` in production. An empty allowlist disables production extension redirects/CORS.
+- For an incident, revoke the affected token first, then filter audit events by actor and time. Bearer-authenticated writes store the access-token record as `context.credentialId`; `lastUsedAt` narrows the activity window, and issued records identify every URL affected.
+- MCP exposes no admin/configuration tools. Any future administrative integration requires a separate decision and narrower scopes.
+
 Audit events (`rpa_`) are append-only, written in the same transaction as the change they describe, with before/after snapshots (secret-looking keys are redacted) and optional reason and correlation ID. Query via `GET /api/admin/audit`; add `format=csv` for export.
 
 Filter recipes:

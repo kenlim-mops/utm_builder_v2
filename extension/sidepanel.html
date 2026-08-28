@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Runpod UTM Builder</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <div><span class="eyebrow">RUNPOD</span><h1>UTM Builder</h1></div>
+      <button id="settingsToggle" class="icon-button" aria-label="Connection settings">⚙</button>
+    </header>
+
+    <section id="settings" class="card hidden">
+      <label>Registry URL<input id="apiBase" type="url" placeholder="https://utm.runpod.io" /></label>
+      <div class="row"><button id="saveBase" class="secondary">Save</button><button id="connect">Connect with SSO</button></div>
+      <p id="connectionDetail" class="muted">Not connected.</p>
+    </section>
+
+    <main>
+      <section id="signedOut" class="card centered">
+        <h2>Connect to the registry</h2>
+        <p>Sign in once per browser session. Generated URLs and actions are stored in the shared registry.</p>
+        <button id="connectPrimary">Connect with SSO</button>
+      </section>
+
+      <form id="builder" class="hidden">
+        <label>Destination URL
+          <div class="input-action"><input id="destination" required /><button id="capture" type="button" class="secondary compact">Current tab</button></div>
+        </label>
+
+        <label>Initiative <select id="initiative"><option value="">No initiative</option></select></label>
+        <details><summary>Create an initiative</summary><div class="inline-form"><input id="newInitiativeName" placeholder="Product launch name" /><button id="createInitiative" type="button" class="secondary">Create</button></div></details>
+
+        <label>Campaign <select id="campaign" required><option value="">Select a campaign…</option></select></label>
+        <details><summary>Create a campaign</summary><div class="stack"><input id="newCampaignName" placeholder="Campaign display name" /><input id="newCampaignSlug" placeholder="utm_campaign (optional)" /><button id="createCampaign" type="button" class="secondary">Create and select</button></div></details>
+
+        <label>Platform preset <select id="preset"></select></label>
+        <div class="two-col"><label>Medium<select id="medium"></select></label><label>Source<select id="source"></select></label></div>
+        <label>Content <input id="content" placeholder="creative or placement (optional)" /></label>
+        <label>Term <input id="term" placeholder="keyword or targeting (optional)" /></label>
+
+        <div class="row sticky-actions"><button id="preview" type="button" class="secondary">Preview</button><button id="issue" type="submit">Issue & copy</button></div>
+      </form>
+
+      <section id="result" class="card hidden" aria-live="polite">
+        <div class="result-heading"><h2 id="resultTitle">Preview</h2><span id="resultBadge" class="badge"></span></div>
+        <p id="findings"></p>
+        <textarea id="generatedUrl" readonly rows="5"></textarea>
+        <div class="row"><button id="copyResult" class="secondary">Copy</button><button id="openRegistry" class="secondary">Open registry</button></div>
+      </section>
+      <p id="status" class="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

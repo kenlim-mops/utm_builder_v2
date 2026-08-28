@@ -13,12 +13,14 @@
     "db:migrate": "tsx src/db/migrate-cli.ts",
     "db:seed": "tsx src/db/seed-cli.ts",
     "outbox:process": "tsx src/services/outbox-cli.ts",
+    "extension:check": "node scripts/check-extension.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",
-    "drizzle-orm": "^0.38.4",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "drizzle-orm": "^0.45.2",
     "next": "^15.1.6",
     "pg": "^8.13.1",
     "react": "^19.0.0",
@@ -26,14 +28,17 @@
     "ulidx": "^2.4.1",
     "zod": "^3.24.1"
   },
+  "overrides": {
+    "postcss": "8.5.26"
+  },
   "devDependencies": {
     "@types/node": "^22.10.7",
     "@types/pg": "^8.11.10",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
-    "drizzle-kit": "^0.30.2",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11"
   }
 }

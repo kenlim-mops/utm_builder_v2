@@ -12,9 +12,10 @@
  * requireUser/requireRole on the server.
  */
 import { cookies } from "next/headers";
-import { eq } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { users } from "@/db/schema";
+import { apiAccessTokens, users } from "@/db/schema";
+import { sha256 } from "@/core/tokens";
 
 export type Role = "user" | "admin" | "investigator";
 
@@ -23,6 +24,19 @@ export interface SessionUser {
   email: string;
   name: string;
   role: Role;
+}
+
+export type ApiScope =
+  | "utm:read"
+  | "utm:preview"
+  | "utm:issue"
+  | "utm:campaigns:write"
+  | "utm:initiatives:write";
+
+export interface ApiSessionUser extends SessionUser {
+  authMethod: "bearer";
+  tokenId: string;
+  scopes: ApiScope[];
 }
 
 export const DEV_IDENTITY_COOKIE = "rp_dev_identity";
@@ -62,15 +76,72 @@ async function ssoProvider(): Promise<SessionUser | null> {
   );
 }
 
-export async function getSession(): Promise<SessionUser | null> {
+async function bearerProvider(req: Request): Promise<ApiSessionUser | null> {
+  const header = req.headers.get("authorization");
+  if (!header?.startsWith("Bearer ")) return null;
+  const raw = header.slice("Bearer ".length).trim();
+  if (!raw) throw new AuthError(401, "Bearer token is missing.");
+  const db = await getDb();
+  const rows = await db
+    .select({ token: apiAccessTokens, user: users })
+    .from(apiAccessTokens)
+    .innerJoin(users, eq(apiAccessTokens.userId, users.id))
+    .where(
+      and(
+        eq(apiAccessTokens.tokenHash, sha256(raw)),
+        isNull(apiAccessTokens.revokedAt),
+        gt(apiAccessTokens.expiresAt, new Date()),
+        eq(users.active, true),
+      ),
+    )
+    .limit(1);
+  const match = rows[0];
+  if (!match) throw new AuthError(401, "Bearer token is invalid, expired, or revoked.");
+  await db
+    .update(apiAccessTokens)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(apiAccessTokens.id, match.token.id));
+  return {
+    id: match.user.id,
+    email: match.user.email,
+    name: match.user.name,
+    role: match.user.role,
+    authMethod: "bearer",
+    tokenId: match.token.id,
+    scopes: (match.token.scopes as ApiScope[]) ?? [],
+  };
+}
+
+export async function getSession(req?: Request): Promise<SessionUser | ApiSessionUser | null> {
+  if (req?.headers.get("authorization")) return bearerProvider(req);
   const provider = process.env.AUTH_PROVIDER ?? "dev";
   if (provider === "sso") return ssoProvider();
   return devProvider();
 }
 
-export async function requireUser(): Promise<SessionUser> {
-  const session = await getSession();
+export async function requireUser(req?: Request): Promise<SessionUser | ApiSessionUser> {
+  const session = await getSession(req);
   if (!session) throw new AuthError(401, "Not authenticated.");
+  return session;
+}
+
+export async function requireApiScope(req: Request, ...required: ApiScope[]): Promise<SessionUser | ApiSessionUser> {
+  const session = await requireUser(req);
+  if (!("authMethod" in session)) return session; // authenticated first-party web session
+  const missing = required.filter((scope) => !session.scopes.includes(scope));
+  if (missing.length) throw new AuthError(403, `Token is missing scope: ${missing.join(", ")}.`);
+  return session;
+}
+
+/** Machine-facing endpoints must never fall back to a browser cookie session. */
+export async function requireBearerApiScope(
+  req: Request,
+  ...required: ApiScope[]
+): Promise<ApiSessionUser> {
+  const session = await requireApiScope(req, ...required);
+  if (!("authMethod" in session)) {
+    throw new AuthError(401, "A bearer access token is required.");
+  }
   return session;
 }
 

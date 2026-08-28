@@ -174,6 +174,46 @@ Format per entry: Status / Context / Options / Decision / Justification / Tradeo
 - **Tradeoffs:** Production deployment is hard-blocked on SSO implementation; the `ALLOW_DEV_AUTH` escape hatch exists for staging and must be governed.
 - **Revisit trigger:** SSO provider approval (Open decisions) → implement `ssoProvider()` and delete the escape hatch from runbooks.
 
+## 18. Browser side panel as the primary one-off adoption surface
+
+- **Status:** Accepted
+- **Context:** Campaign managers work across many browser-based platforms and will avoid a separate web app for one or two links.
+- **Options:** (a) web app only; (b) DOM-injected platform controls; (c) a platform-neutral Chrome side panel capturing the current page/right-clicked link.
+- **Decision:** Ship a Manifest V3 side panel using `activeTab`, context menus, and optional access only to the configured registry host. It calls `/api/v1`; it contains no UTM generation logic and never submits third-party forms.
+- **Justification:** It removes tab-switch/copy friction across platforms without coupling V1 to frequently changing third-party DOMs or requiring broad permissions.
+- **Tradeoffs:** Users still paste the issued link into the platform; private extension distribution and browser-management ownership are required.
+- **Revisit trigger:** Measured usage identifies one platform workflow where certified autofill or a native API integration materially reduces errors.
+
+## 19. Supported versioned API with idempotent issuance
+
+- **Status:** Accepted
+- **Context:** Extension, MCP, spreadsheet, and future adapters need a stable boundary, and network retries must not mint duplicate link records.
+- **Options:** (a) reuse unversioned UI routes; (b) expose service code per client; (c) `/api/v1` with bearer scopes, stable errors, and idempotency.
+- **Decision:** `/api/v1` delegates to existing services. Single issuance requires an actor-scoped `Idempotency-Key`; request hash and result link are stored in the same transaction. OpenAPI describes the supported surface.
+- **Justification:** One boundary keeps clients thin and independently releasable. Transactional idempotency makes ambiguous retries safe without weakening semantic duplicate detection.
+- **Tradeoffs:** API compatibility and token lifecycle become owned product commitments; idempotency records require retention cleanup later.
+- **Revisit trigger:** A breaking contract change requires `/api/v2`; sustained high concurrency may justify a more explicit in-progress retry protocol.
+
+## 20. PKCE extension auth and scoped personal tokens
+
+- **Status:** Accepted (interim until organization OAuth is approved)
+- **Context:** Machine and extension clients cannot safely rely on web cookies or long-lived shared secrets.
+- **Options:** (a) shared API key; (b) personal tokens only; (c) short extension tokens via SSO/PKCE plus expiring personal tokens for API/MCP.
+- **Decision:** The extension uses one-time, five-minute PKCE S256 authorization codes and eight-hour session-stored bearer tokens. API/MCP users mint per-user tokens (maximum 90 days). Only hashes are stored; tokens are scoped, revocable, usage-stamped, and audited at creation/revocation.
+- **Justification:** Compromise is attributable and containable; the extension never persists its credential across browser restart. No organization OAuth provider is assumed prematurely.
+- **Tradeoffs:** Personal token rotation is manual; a compromised browser session remains valid until expiry or revocation.
+- **Revisit trigger:** Runpod approves an OAuth authorization server/client registration path for MCP and other machine clients.
+
+## 21. MCP as a complementary governed client
+
+- **Status:** Accepted
+- **Context:** Agents can efficiently prepare/search many links, but granting a second implementation or silent write authority would undermine governance.
+- **Options:** (a) no AI integration; (b) MCP with independent logic; (c) stateless MCP tools calling the shared registry services.
+- **Decision:** Expose read/search/preview and narrowly scoped create/issue tools through authenticated Streamable HTTP. Every write tool requires explicit `confirmed=true`; single issuance also requires idempotency. No admin tools are exposed.
+- **Justification:** Agents reduce clerical work while validation, duplicates, IDs, audit, and transactions remain server-enforced. MCP and browser extension solve different adoption moments.
+- **Tradeoffs:** Client approval UX varies, and personal tokens are an interim authentication model.
+- **Revisit trigger:** MCP client adoption, organization OAuth availability, or demand for a separately reviewed administrative tool surface.
+
 ---
 
 ## Open decisions
@@ -189,3 +229,5 @@ Not yet decided; each blocks or shapes production rollout:
 7. **Preset adapter certification** — which presets get human-verified against current platform docs (macros, parameter behavior) and promoted from `draft` to `verified`, and on what review cadence.
 8. **Monitoring/alerting ownership** — which team owns health, dead-letter, and reconciliation-discrepancy alerts, and in which alerting system.
 9. **Vanity-domain availability tier** — requirements (uptime, ownership, fallback semantics) a redirect/short-link layer would have to meet. **Explicitly future work, not V2**: any such layer sits in front of self-describing URLs and must never become a click-time dependency for attribution.
+10. **Extension distribution ownership** — private Chrome Web Store vs. enterprise browser policy, signing/release owner, and update SLA.
+11. **MCP/API OAuth** — approved authorization server, client registration, token audience, and refresh/revocation expectations that can replace manual personal tokens.

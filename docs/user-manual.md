@@ -29,6 +29,10 @@ rp_initiative_id? (admin policy, default OFF), rp_link_id? (admin policy, defaul
 
 ## 3. Bulk creation
 
+### Fast access from other tools
+
+Use the browser extension when you need one URL while working in HubSpot or an ad platform: click the toolbar button for the current page, or right-click a link, then preview and issue from the side panel. Use the web bulk flow for many URLs. Approved scripts and AI tools use the versioned API/MCP server; they still create the same registry records and cannot bypass validation or duplicate checks. See [browser-extension.md](browser-extension.md) and [mcp.md](mcp.md).
+
 All bulk paths produce one **batch** (`rpb_...`) and run every row through the exact same issuance service as the single builder. The batch limit is admin-configurable (default **200** rows).
 
 Three input modes:

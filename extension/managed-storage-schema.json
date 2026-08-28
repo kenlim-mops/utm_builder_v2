@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "apiBase": {
+      "type": "string",
+      "title": "Runpod UTM Registry URL",
+      "description": "HTTPS origin of the approved internal UTM registry."
+    }
+  }
+}

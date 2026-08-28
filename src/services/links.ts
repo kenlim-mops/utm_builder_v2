@@ -10,7 +10,7 @@
  * commits. No IDs are minted client-side and no URL is handed out without a
  * committed record (drafts excepted, and drafts are explicit).
  */
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import {
   exactFingerprint,
   nearFingerprint,
@@ -32,6 +32,7 @@ import {
 } from "@/core/validation";
 import type { Db, Tx } from "@/db/client";
 import {
+  apiIdempotencyKeys,
   campaigns,
   duplicateResolutions,
   linkRevisions,
@@ -40,6 +41,7 @@ import {
   validationRuns,
 } from "@/db/schema";
 import { prefixedUlid } from "@/core/ids";
+import { stableRequestHash } from "@/core/tokens";
 import { recordAudit } from "./audit";
 import type { SessionUser } from "./auth";
 import { getConfig } from "./config";
@@ -61,6 +63,8 @@ export interface LinkRequest {
   duplicateReason?: string | null;
   batchId?: string | null;
   correlationId?: string | null;
+  /** Safe retry key supplied by supported API clients. */
+  idempotencyKey?: string | null;
 }
 
 export interface DuplicateInfo {
@@ -353,6 +357,69 @@ export async function issueLink(
   const config = await getConfig(db);
 
   return db.transaction(async (tx) => {
+    const idempotencyKey = input.idempotencyKey?.trim();
+    const requestHash = idempotencyKey ? stableRequestHash(input) : null;
+    if (idempotencyKey) {
+      if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+        throw new Error("Idempotency-Key must be between 8 and 200 characters.");
+      }
+      // Insert first with conflict handling so concurrent retries cannot race
+      // between a preflight SELECT and INSERT. PostgreSQL waits for the first
+      // transaction, then the losing request reads the committed result.
+      const inserted = await tx
+        .insert(apiIdempotencyKeys)
+        .values({
+          id: prefixedUlid("idem"),
+          actorId: actor.id,
+          operation: "links.issue",
+          key: idempotencyKey,
+          requestHash: requestHash!,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        })
+        .onConflictDoNothing({
+          target: [
+            apiIdempotencyKeys.actorId,
+            apiIdempotencyKeys.operation,
+            apiIdempotencyKeys.key,
+          ],
+        })
+        .returning({ id: apiIdempotencyKeys.id });
+      if (inserted.length === 0) {
+        const [existing] = await tx
+          .select()
+          .from(apiIdempotencyKeys)
+          .where(
+            and(
+              eq(apiIdempotencyKeys.actorId, actor.id),
+              eq(apiIdempotencyKeys.operation, "links.issue"),
+              eq(apiIdempotencyKeys.key, idempotencyKey),
+            ),
+          )
+          .limit(1);
+        if (!existing) throw new Error("Idempotent request could not be resolved.");
+        if (existing.requestHash !== requestHash) {
+          throw new Error("Idempotency-Key was already used with a different request.");
+        }
+        if (!existing.linkId) throw new Error("Idempotent request is still processing.");
+        const [cachedLink] = await tx.select().from(links).where(eq(links.id, existing.linkId));
+        if (!cachedLink) throw new Error("Idempotent response references a missing link.");
+        const [validation] = await tx
+          .select()
+          .from(validationRuns)
+          .where(eq(validationRuns.linkId, cachedLink.id))
+          .orderBy(desc(validationRuns.createdAt))
+          .limit(1);
+        return {
+          link: cachedLink,
+          validation: {
+            ok: validation?.passed ?? true,
+            findings: (validation?.findings as ValidationFinding[]) ?? [],
+          },
+          duplicates: { exact: null, near: [] },
+        };
+      }
+    }
+
     const prepared = await prepare(tx, input);
     if (!prepared.validation.ok) {
       throw new IssueError(prepared.validation.findings);
@@ -465,6 +532,19 @@ export async function issueLink(
       correlationId: input.correlationId,
       context: input.batchId ? { batchId: input.batchId } : null,
     });
+
+    if (idempotencyKey) {
+      await tx
+        .update(apiIdempotencyKeys)
+        .set({ linkId })
+        .where(
+          and(
+            eq(apiIdempotencyKeys.actorId, actor.id),
+            eq(apiIdempotencyKeys.operation, "links.issue"),
+            eq(apiIdempotencyKeys.key, idempotencyKey),
+          ),
+        );
+    }
 
     return { link: row, validation: prepared.validation, duplicates };
   });

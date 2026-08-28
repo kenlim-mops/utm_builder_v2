@@ -7,7 +7,7 @@ Internal tool for issuing governed campaign URLs. Campaign managers create one l
 Ad-hoc UTM tagging produces unjoinable campaign names, silent duplicates, and reports built on substring matching. V2 replaces that with:
 
 - **One canonical campaign ID** (`rpc_...`) minted by the registry and carried publicly in `utm_id`. Names can change; the ID never does.
-- **One generation service.** Every entry point (single builder, bulk grid, spreadsheet paste, CSV upload, future integrations) calls the same `previewLink`/`issueLink` implementation in `src/services/links.ts`. There is exactly one implementation of normalization, validation, fingerprinting, duplicate policy, and audit.
+- **One generation service.** Every entry point (single builder, bulk grid, spreadsheet paste, CSV upload, browser extension, versioned API, and MCP server) calls the same `previewLink`/`issueLink` implementation in `src/services/links.ts`. There is exactly one implementation of normalization, validation, fingerprinting, duplicate policy, and audit.
 - **Self-describing URLs.** Issued links carry all identifiers in their query string. Nothing is looked up at click time — a registry outage never breaks an existing link.
 
 ## Features
@@ -25,14 +25,17 @@ Ad-hoc UTM tagging produces unjoinable campaign names, silent duplicates, and re
 - Append-only audit trail with before/after diffs and secret redaction
 - Roles: `user`, `admin`, `investigator` (read-only audit/integration access); all enforcement server-side
 - Fail-closed issuance: a URL exists only if the registry transaction committed
+- Manifest V3 Chrome side panel: capture the current page or right-click a link, preview, issue, log, and copy without leaving the platform workflow
+- Supported `/api/v1` surface with bearer scopes, stable error envelopes, CORS allowlisting, OpenAPI, and idempotent single-link issuance
+- Authenticated remote MCP endpoint with read, preview, search, campaign/initiative creation, single issuance, and batch issuance tools
 
 ## Architecture
 
 One registry, one generation API, multiple entry points:
 
 ```
-  Single builder   Bulk grid / paste / CSV     /admin        Future clients
-        │                    │                    │        (browser helper, APIs)
+  Single builder   Bulk grid / paste / CSV     /admin      Extension / API / MCP
+        │                    │                    │                    │
         └────────────┬───────┴──────────┬─────────┘                │
                      ▼                  ▼                          ▼
              ┌──────────────────────────────────────────────────────────┐
@@ -106,6 +109,7 @@ The dev auth provider (`AUTH_PROVIDER=dev`, the default) selects the identity fr
 | `npm run db:migrate` | Apply migrations to the configured database |
 | `npm run db:seed` | Apply the idempotent seed (no-op if already seeded) |
 | `npm run outbox:process` | Process due outbox events once (manual/local worker run) |
+| `npm run extension:check` | Validate the Chrome manifest and extension JavaScript syntax |
 
 Health check: `GET /api/health` (checks API + database).
 
@@ -117,6 +121,9 @@ Health check: `GET /api/health` (checks API + database).
 | [docs/admin-manual.md](docs/admin-manual.md) | Administrators: taxonomy, policies, presets, roles, audit, incidents |
 | [docs/deployment-vercel.md](docs/deployment-vercel.md) | Operators: Vercel setup, env vars, SSO contract, cron, backups |
 | [docs/reporting-contract.md](docs/reporting-contract.md) | Analysts: ID hierarchy, GA4 setup, warehouse joins, sample SQL |
+| [docs/api.md](docs/api.md) | Developers: `/api/v1`, bearer scopes, idempotency, errors, examples |
+| [docs/browser-extension.md](docs/browser-extension.md) | Users/operators: extension workflow, installation, security, rollout |
+| [docs/mcp.md](docs/mcp.md) | AI-tool users/operators: MCP setup, tool safety, token rotation |
 | [docs/decisions.md](docs/decisions.md) | Everyone: architecture decision records and open decisions |
 
 ## Known limitations (V2)
@@ -126,6 +133,8 @@ Health check: `GET /api/health` (checks API + database).
 - **HubSpot sync requires `HUBSPOT_ACCESS_TOKEN`.** Without it, sync events stay safely queued in the outbox.
 - **SSO pending.** The SSO provider is a stub awaiting Runpod IdP approval; production cannot ship until it is implemented (dev provider refuses production).
 - **E2E coverage is API-level**, not browser-driven.
+- **Extension distribution is not automated.** The source package is ready for a private Chrome Web Store or managed-enterprise release after Runpod assigns and allowlists the production extension ID.
+- **MCP currently uses personal bearer tokens.** Tokens are user-scoped, hashed at rest, expire within 90 days, and can be revoked; replace with organization-standard OAuth when that provider is approved.
 
 ## Failure domains
 

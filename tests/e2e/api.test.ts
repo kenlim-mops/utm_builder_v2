@@ -38,6 +38,9 @@ beforeAll(async () => {
 describe("API end-to-end", () => {
   let campaignId: string;
   let linkId: string;
+  let apiToken: string;
+  let apiCredentialId: string;
+  let versionedLinkId: string;
 
   it("health endpoint reports database status", async () => {
     const { GET } = await import("@/app/api/health/route");
@@ -70,6 +73,52 @@ describe("API end-to-end", () => {
     linkId = body.link.id;
     expect(body.link.finalUrl).toContain(`utm_id=${campaignId}`);
     expect(body.link.finalUrl).toContain("ref=keep");
+  });
+
+  it("authenticates the versioned API with a user-scoped bearer token", async () => {
+    asUser("dev-user@runpod.io");
+    const accessTokens = await import("@/app/api/v1/access-tokens/route");
+    const created = await accessTokens.POST(
+      jsonRequest("/api/v1/access-tokens", "POST", { label: "E2E API", clientType: "api", expiresInDays: 7 }),
+    );
+    expect(created.status).toBe(201);
+    apiToken = (await created.json()).token;
+
+    const session = await import("@/app/api/v1/session/route");
+    const response = await session.GET(new Request("http://localhost/api/v1/session", {
+      headers: { Authorization: `Bearer ${apiToken}` },
+    }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.session.email).toBe("dev-user@runpod.io");
+    expect(body.session.authMethod).toBe("bearer");
+    apiCredentialId = body.session.tokenId;
+    expect(response.headers.get("X-Request-ID")).toBeTruthy();
+  });
+
+  it("makes versioned link issuance safely idempotent", async () => {
+    const route = await import("@/app/api/v1/links/route");
+    const request = () => new Request("http://localhost/api/v1/links", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "e2e-versioned-issuance-001",
+      },
+      body: JSON.stringify({
+        destination: "runpod.io/versioned-e2e",
+        campaignId,
+        utmSource: "github",
+        utmMedium: "organic",
+      }),
+    });
+    const first = await route.POST(request());
+    const retry = await route.POST(request());
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(201);
+    const firstBody = await first.json();
+    versionedLinkId = firstBody.link.id;
+    expect((await retry.json()).link.id).toBe(versionedLinkId);
   });
 
   it("returns 409 with the existing record for exact duplicates", async () => {
@@ -184,6 +233,11 @@ describe("API end-to-end", () => {
     const res = await audit.GET(jsonRequest(`/api/admin/audit?entityId=${linkId}`, "GET"));
     const body = await res.json();
     expect(body.events.some((e: { action: string }) => e.action === "link.issued")).toBe(true);
+    const apiEventResponse = await audit.GET(
+      jsonRequest(`/api/admin/audit?entityId=${versionedLinkId}`, "GET"),
+    );
+    const apiEventBody = await apiEventResponse.json();
+    expect(apiEventBody.events[0].context.credentialId).toBe(apiCredentialId);
     const csv = await audit.GET(jsonRequest(`/api/admin/audit?format=csv`, "GET"));
     expect(csv.headers.get("Content-Type")).toContain("text/csv");
   });

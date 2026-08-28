@@ -36,10 +36,14 @@ export interface AuditInput {
 
 export async function recordAudit(
   db: Db | Tx,
-  actor: SessionUser,
+  actor: SessionUser & { authMethod?: "bearer"; tokenId?: string },
   input: AuditInput,
 ): Promise<string> {
   const id = newId("audit");
+  const clientContext = actor.authMethod
+    ? { authMethod: actor.authMethod, credentialId: actor.tokenId }
+    : {};
+  const context = { ...clientContext, ...(input.context ?? {}) };
   await db.insert(auditEvents).values({
     id,
     actorId: actor.id,
@@ -52,7 +56,7 @@ export async function recordAudit(
     after: input.after === undefined ? null : redact(input.after),
     reason: input.reason ?? null,
     configVersion: input.configVersion ?? null,
-    context: input.context ? (redact(input.context) as Record<string, unknown>) : null,
+    context: Object.keys(context).length ? (redact(context) as Record<string, unknown>) : null,
   });
   return id;
 }

@@ -39,6 +39,53 @@ export const users = pgTable(
   (t) => [uniqueIndex("users_email_uq").on(t.email)],
 );
 
+// ------------------------------------------------------ API access tokens
+/**
+ * User-scoped bearer credentials for approved non-browser clients. Only the
+ * SHA-256 hash is stored; plaintext is returned exactly once at issuance.
+ */
+export const apiAccessTokens = pgTable(
+  "api_access_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    label: text("label").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    scopes: jsonb("scopes").notNull().default([]),
+    clientType: text("client_type", { enum: ["extension", "mcp", "api"] })
+      .notNull()
+      .default("api"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("api_access_tokens_hash_uq").on(t.tokenHash),
+    index("api_access_tokens_user_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/** One-time PKCE authorization codes used by the Chrome extension. */
+export const extensionAuthorizationCodes = pgTable(
+  "extension_authorization_codes",
+  {
+    id: text("id").primaryKey(),
+    codeHash: text("code_hash").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    redirectUri: text("redirect_uri").notNull(),
+    codeChallenge: text("code_challenge").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("extension_auth_codes_hash_uq").on(t.codeHash)],
+);
+
 // ----------------------------------------------------------- initiatives
 export const initiatives = pgTable(
   "initiatives",
@@ -171,6 +218,29 @@ export const links = pgTable(
     index("links_batch_idx").on(t.batchId),
     index("links_near_fp_idx").on(t.nearFingerprint),
     index("links_created_at_idx").on(t.createdAt),
+  ],
+);
+
+// ------------------------------------------------------- API idempotency
+/**
+ * Makes retrying an issuance request safe. The key is scoped to actor and
+ * operation, and is committed in the same transaction as the generated link.
+ */
+export const apiIdempotencyKeys = pgTable(
+  "api_idempotency_keys",
+  {
+    id: text("id").primaryKey(),
+    actorId: text("actor_id").notNull(),
+    operation: text("operation").notNull(),
+    key: text("key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    linkId: text("link_id").references(() => links.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("api_idempotency_actor_operation_key_uq").on(t.actorId, t.operation, t.key),
+    index("api_idempotency_expires_idx").on(t.expiresAt),
   ],
 );
 

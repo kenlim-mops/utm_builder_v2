@@ -494,6 +494,249 @@ export const reconciliationRuns = pgTable("reconciliation_runs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// --------------------------------------------------------- GTM data catalog
+/**
+ * A deliberately flexible, typed catalog for GTM operating metadata. The
+ * stable columns make records searchable and governable while `attributes`
+ * carries type-specific details without requiring a migration for every new
+ * advertising platform or business concept.
+ */
+export const gtmCatalogRecords = pgTable(
+  "gtm_catalog_records",
+  {
+    id: text("id").primaryKey(),
+    recordType: text("record_type", {
+      enum: [
+        "person",
+        "team",
+        "agency",
+        "vendor",
+        "system",
+        "account",
+        "integration",
+        "data_term",
+        "data_field",
+        "measurement_asset",
+        "runbook",
+        "policy",
+        "report",
+      ],
+    }).notNull(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    summary: text("summary"),
+    attributes: jsonb("attributes").notNull().default({}),
+    sensitivity: text("sensitivity", { enum: ["internal", "restricted"] })
+      .notNull()
+      .default("internal"),
+    lifecycle: text("lifecycle", { enum: ["draft", "active", "inactive", "deprecated"] })
+      .notNull()
+      .default("active"),
+    verificationState: text("verification_state", {
+      enum: ["unverified", "verified", "stale", "conflict"],
+    })
+      .notNull()
+      .default("unverified"),
+    lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+    sourceUrl: text("source_url"),
+    sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
+    version: integer("version").notNull().default(1),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("gtm_catalog_type_key_uq").on(t.recordType, t.key),
+    index("gtm_catalog_type_lifecycle_idx").on(t.recordType, t.lifecycle),
+    index("gtm_catalog_verification_idx").on(t.verificationState, t.updatedAt),
+  ],
+);
+
+/** Typed edges provide ownership, responsibility, system, and lineage maps. */
+export const gtmCatalogRelationships = pgTable(
+  "gtm_catalog_relationships",
+  {
+    id: text("id").primaryKey(),
+    fromRecordId: text("from_record_id")
+      .notNull()
+      .references(() => gtmCatalogRecords.id),
+    toRecordId: text("to_record_id")
+      .notNull()
+      .references(() => gtmCatalogRecords.id),
+    relationshipType: text("relationship_type").notNull(),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    context: jsonb("context").notNull().default({}),
+    status: text("status", { enum: ["active", "inactive"] }).notNull().default("active"),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("gtm_relationship_edge_uq").on(
+      t.fromRecordId,
+      t.toRecordId,
+      t.relationshipType,
+    ),
+    index("gtm_relationship_from_idx").on(t.fromRecordId, t.status),
+    index("gtm_relationship_to_idx").on(t.toRecordId, t.status),
+  ],
+);
+
+// ------------------------------------------------------ bulk-change library
+export const gtmBulkTemplates = pgTable(
+  "gtm_bulk_templates",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    platformKey: text("platform_key").notNull(),
+    objectType: text("object_type").notNull(),
+    operation: text("operation").notNull(),
+    format: text("format", { enum: ["csv", "xlsx", "json"] }).notNull().default("csv"),
+    columns: jsonb("columns").notNull().default([]),
+    defaults: jsonb("defaults").notNull().default({}),
+    validations: jsonb("validations").notNull().default({}),
+    examples: jsonb("examples").notNull().default([]),
+    maxRows: integer("max_rows"),
+    availabilityNotes: text("availability_notes"),
+    docsUrl: text("docs_url"),
+    verificationState: text("verification_state", {
+      enum: ["draft", "verified", "deprecated"],
+    })
+      .notNull()
+      .default("draft"),
+    lifecycle: text("lifecycle", { enum: ["active", "inactive", "deprecated"] })
+      .notNull()
+      .default("active"),
+    version: integer("version").notNull().default(1),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("gtm_bulk_templates_key_uq").on(t.key),
+    index("gtm_bulk_templates_platform_idx").on(t.platformKey, t.lifecycle),
+  ],
+);
+
+// --------------------------------------------------- governed source sync
+/** Connector definitions contain references to credentials, never secrets. */
+export const gtmSourceConnectors = pgTable(
+  "gtm_source_connectors",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    sourceType: text("source_type", { enum: ["notion", "api", "manual"] }).notNull(),
+    mode: text("mode", { enum: ["poll", "webhook", "hybrid"] }).notNull().default("poll"),
+    status: text("status", { enum: ["active", "paused", "error"] }).notNull().default("paused"),
+    config: jsonb("config").notNull().default({}),
+    credentialRef: text("credential_ref"),
+    authoritativeFields: jsonb("authoritative_fields").notNull().default([]),
+    autoApply: boolean("auto_apply").notNull().default(false),
+    scheduleMinutes: integer("schedule_minutes").notNull().default(60),
+    checkpoint: jsonb("checkpoint"),
+    lastStartedAt: timestamp("last_started_at", { withTimezone: true }),
+    lastSucceededAt: timestamp("last_succeeded_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    lockOwner: text("lock_owner"),
+    lockExpiresAt: timestamp("lock_expires_at", { withTimezone: true }),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("gtm_source_connectors_key_uq").on(t.key),
+    index("gtm_source_connectors_due_idx").on(t.status, t.lastStartedAt),
+  ],
+);
+
+export const gtmSourceRecords = pgTable(
+  "gtm_source_records",
+  {
+    id: text("id").primaryKey(),
+    connectorId: text("connector_id")
+      .notNull()
+      .references(() => gtmSourceConnectors.id),
+    externalId: text("external_id").notNull(),
+    internalRecordId: text("internal_record_id").references(() => gtmCatalogRecords.id),
+    sourceUrl: text("source_url"),
+    contentHash: text("content_hash").notNull(),
+    sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    payload: jsonb("payload").notNull(),
+    status: text("status", {
+      enum: ["current", "proposed", "conflict", "ignored", "deleted"],
+    })
+      .notNull()
+      .default("proposed"),
+  },
+  (t) => [
+    uniqueIndex("gtm_source_records_external_uq").on(t.connectorId, t.externalId),
+    index("gtm_source_records_internal_idx").on(t.internalRecordId),
+  ],
+);
+
+export const gtmSourceSyncRuns = pgTable(
+  "gtm_source_sync_runs",
+  {
+    id: text("id").primaryKey(),
+    connectorId: text("connector_id")
+      .notNull()
+      .references(() => gtmSourceConnectors.id),
+    trigger: text("trigger", { enum: ["schedule", "manual", "webhook"] }).notNull(),
+    status: text("status", { enum: ["running", "succeeded", "failed", "skipped"] })
+      .notNull()
+      .default("running"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    seenCount: integer("seen_count").notNull().default(0),
+    changedCount: integer("changed_count").notNull().default(0),
+    appliedCount: integer("applied_count").notNull().default(0),
+    proposedCount: integer("proposed_count").notNull().default(0),
+    conflictCount: integer("conflict_count").notNull().default(0),
+    findings: jsonb("findings").notNull().default([]),
+    checkpoint: jsonb("checkpoint"),
+    error: text("error"),
+  },
+  (t) => [index("gtm_source_sync_runs_connector_idx").on(t.connectorId, t.startedAt)],
+);
+
+export const gtmChangeProposals = pgTable(
+  "gtm_change_proposals",
+  {
+    id: text("id").primaryKey(),
+    connectorId: text("connector_id")
+      .notNull()
+      .references(() => gtmSourceConnectors.id),
+    sourceRecordId: text("source_record_id")
+      .notNull()
+      .references(() => gtmSourceRecords.id),
+    internalRecordId: text("internal_record_id").references(() => gtmCatalogRecords.id),
+    proposalType: text("proposal_type", { enum: ["create", "update", "delete"] }).notNull(),
+    before: jsonb("before"),
+    after: jsonb("after").notNull(),
+    diff: jsonb("diff").notNull().default({}),
+    status: text("status", { enum: ["pending", "approved", "rejected", "applied", "superseded"] })
+      .notNull()
+      .default("pending"),
+    reason: text("reason"),
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("gtm_change_proposals_status_idx").on(t.status, t.createdAt),
+    index("gtm_change_proposals_source_idx").on(t.sourceRecordId, t.status),
+  ],
+);
+
 // ------------------------------------------------- versioned app settings
 export const appSettings = pgTable("app_settings", {
   key: text("key").primaryKey(), // e.g. public_param_policy, bulk_limit, required_fields

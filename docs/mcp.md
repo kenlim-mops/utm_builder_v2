@@ -1,6 +1,10 @@
-# MCP Server
+# GTM Data MCP — UTM module quick start
 
-The remote MCP server lets approved AI clients search, preview, and create governed UTM records through the same registry services as the web app. It complements the browser extension: the extension minimizes clicks for people working in web platforms; MCP helps with conversational and multi-row preparation.
+The remote server is now named **GTM Data MCP**. This page documents its UTM module; the complete catalog, ownership, lineage, data dictionary, runbook, bulk-template, and source-update inventory is in [gtm-data-mcp.md](gtm-data-mcp.md).
+
+The UTM module lets approved AI clients search, preview, and create governed UTM records through the same registry services as the web app. It complements the browser extension: the extension minimizes clicks for people working in web platforms; MCP helps with conversational and multi-row preparation.
+
+Slack uses two related but distinct paths: `/utm` and Slack shortcuts call the deterministic Builder workflow described in [slack.md](slack.md), while Slackbot connects to the independent GTM Data MCP using Slack identity auth. The bearer endpoint documented below remains for Codex, Claude Code, and other explicitly configured clients.
 
 ## Endpoint and authentication
 
@@ -14,10 +18,10 @@ Generic client configuration:
 ```json
 {
   "mcpServers": {
-    "runpod-utm": {
+    "runpod-gtm-data": {
       "url": "https://utm.runpod.io/api/mcp",
       "headers": {
-        "Authorization": "Bearer ${RUNPOD_UTM_TOKEN}"
+        "Authorization": "Bearer ${RUNPOD_GTM_DATA_TOKEN}"
       }
     }
   }

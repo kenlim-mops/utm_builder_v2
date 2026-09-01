@@ -31,7 +31,15 @@ Requirements regardless of provider:
 | `DATABASE_URL` | Production, Preview | `postgres://user:pass@host:5432/db` | Required in production. When unset, the app falls back to embedded PGlite — local dev only, never acceptable on Vercel. |
 | `AUTH_PROVIDER` | Production | `sso` | The dev provider throws in production (unless `ALLOW_DEV_AUTH=true`, which must never be set in production). |
 | `OUTBOX_PROCESS_TOKEN` | Production, Preview | `<long random secret>` | Bearer token protecting `/api/outbox/process`. Required — the route rejects everything when no token is configured. |
-| `CRON_SECRET` | Production | `<long random secret>` | Vercel automatically sends this as `Authorization: Bearer` on cron invocations; the route accepts either this or `OUTBOX_PROCESS_TOKEN`. |
+| `CRON_SECRET` | Production | `<long random secret>` | Vercel automatically sends this as `Authorization: Bearer` on both scheduled routes. |
+| `SOURCE_SYNC_TOKEN` | Production, Preview | `<long random secret>` | Optional separate operator token for manually invoking `/api/source-sync`; the route also accepts `CRON_SECRET`. |
+| `NOTION_API_TOKEN` | Production, Preview | `<Notion integration token>` | Required only when a Notion source connector is configured. Store only here; catalog rows carry `env:NOTION_API_TOKEN`, never the token. |
+| `SLACK_SIGNING_SECRET` | Production, Preview | `<Slack app signing secret>` | Verifies `/api/slack/commands` and `/api/slack/interactions`; never expose to clients. |
+| `SLACK_BOT_TOKEN` | Production, Preview | `xoxb-...` | Opens modals, resolves work emails, downloads selected bulk CSV files, and DMs results. |
+| `SLACK_ALLOWED_ENTERPRISE_IDS` | Production | `<Runpod Slack enterprise ID>` | Comma-separated allowlist; configure before enabling Slack issuance. |
+| `SLACK_ALLOWED_TEAM_IDS` | Optional | `<workspace IDs>` | Supplements or narrows workspace-level installs. |
+| `SLACK_USER_EMAIL_MAP_JSON` | Optional | `{"U123":"person@runpod.io"}` | Fallback identity mapping when a profile email is unavailable. |
+| `APP_URL` | Production, Preview | `https://utm.runpod.io` | Canonical registry links sent in Slack batch results. |
 | `HUBSPOT_ACCESS_TOKEN` | Production | `<HubSpot private-app token>` | Optional at launch: without it, HubSpot syncs stay queued/failed in the outbox and everything else works. |
 | `EXTENSION_IDS` | Production | `<32-character Chrome extension ID>` | Required for the production extension PKCE redirect and CORS. Comma-separated only during a controlled ID transition. |
 
@@ -62,7 +70,7 @@ Production auth requires implementing `ssoProvider()` in `src/services/auth.ts` 
 DATABASE_URL=postgres://... npm run db:seed
 ```
 
-The seed is idempotent (no-op once `config_versions` has a row). It installs default settings, the taxonomy, presets, destination policies — and **three dev identities** (`dev-admin@runpod.io` etc.). In production, deactivate the dev identities via /admin users management immediately after seeding, then provision real users.
+The seed is idempotent. On first run it installs default settings, taxonomy, presets, destination policies, and **three dev identities** (`dev-admin@runpod.io` etc.). On later runs it also backfills any missing default GTM data-field definitions and bulk-change templates without overwriting administered rows. In production, deactivate the dev identities via /admin users management immediately after seeding, then provision real users.
 
 ## 7. Domain, HTTPS, cookies
 
@@ -71,7 +79,7 @@ The seed is idempotent (no-op once `config_versions` has a row). It installs def
 - If fronted by an access proxy (e.g. Cloudflare Access / IdP-aware proxy), that proxy's signed assertion can be the SSO verification input (§4).
 - Keep `/api/v1` and `/api/mcp` behind the same HTTPS host. They authenticate bearer tokens server-side; the extension receives CORS only when its ID appears in `EXTENSION_IDS`.
 
-## 8. Outbox processing (Vercel cron)
+## 8. Scheduled processing (Vercel cron)
 
 `vercel.json` (already in the repo):
 
@@ -81,6 +89,10 @@ The seed is idempotent (no-op once `config_versions` has a row). It installs def
     {
       "path": "/api/outbox/process",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/source-sync",
+      "schedule": "17 * * * *"
     }
   ]
 }
@@ -91,6 +103,8 @@ The seed is idempotent (no-op once `config_versions` has a row). It installs def
 - Manual/operator run: `curl -X POST -H "Authorization: Bearer $OUTBOX_PROCESS_TOKEN" https://<host>/api/outbox/process`
 - Non-Vercel fallback: `npm run outbox:process` from any machine with `DATABASE_URL`.
 
+The second job scans due active GTM source connectors hourly. Each connector has its own interval and database lease; hashes make repeat delivery idempotent. Manual/operator run: `curl -X POST -H "Authorization: Bearer $SOURCE_SYNC_TOKEN" https://<host>/api/source-sync`. A source failure records a failed run and `lastError`, leaves catalog data unchanged, and remains eligible for retry. See [source-reconciliation.md](source-reconciliation.md).
+
 ## 9. Logging and monitoring
 
 - **Health:** `GET /api/health` returns 200 `healthy` / 503 `degraded` with per-check detail (API, database). Point uptime monitoring here.
@@ -100,6 +114,7 @@ The seed is idempotent (no-op once `config_versions` has a row). It installs def
   - Reconciliation discrepancies: `discrepancyCount > 0` on recent `reconciliation_runs`
   - Health endpoint failures
   - Cron execution failures (Vercel cron dashboard)
+  - Failed GTM source sync runs, stale `lastSucceededAt`, and pending proposal backlog
 - Monitoring/alerting *ownership* is an open decision — see [decisions.md](decisions.md).
 
 ## 10. Backups and recovery
@@ -126,6 +141,9 @@ Also take periodic config exports (`GET /api/admin/export`) as a lightweight, di
 11. Create a seven-day test token under **API access**; verify `/api/v1/session`, then revoke it and verify the same request returns 401
 12. From the allowlisted extension, capture a current page, preview, issue, and open the resulting registry record
 13. Connect an MCP client to `/api/mcp`; list tools and call `utm_list_reference_data` before attempting any write
+14. Call `gtm_get_data_definition` for `utm_id` and confirm a verified definition is returned
+15. If Notion reconciliation is enabled: create a paused test connector, scan manually, verify a proposal appears without changing the catalog, then reject it with a reason
+16. Import/update `slack/manifest.json`, approve it in Slack, then execute the signed-request, single-link, duplicate-reuse, two-row batch, identity-denial, and GTM MCP smoke tests in [slack.md](slack.md)
 
 ## 12. Production readiness checklist
 
@@ -143,6 +161,9 @@ Also take periodic config exports (`GET /api/admin/export`) as a lightweight, di
 - [ ] Config export taken and stored
 - [ ] Smoke test (§11) passed
 - [ ] API/MCP tokens have an owner, expiry/rotation policy, and secret-storage standard
+- [ ] GTM catalog/source-proposal steward and review SLA assigned
+- [ ] Every enabled Notion connector mapping tested in paused/review-first mode; `NOTION_API_TOKEN` scoped only to approved sources
+- [ ] Platform bulk templates remain draft until account-specific export/import certification is complete
 
 ## 13. Runpod approval dependencies
 
@@ -155,3 +176,5 @@ Explicitly blocked on internal approval (tracked in [decisions.md](decisions.md)
 5. **Monitoring/alerting ownership** — which team receives dead-letter and reconciliation alerts
 6. **Extension distribution** — private Chrome Web Store vs. managed enterprise deployment, plus owner/release process
 7. **MCP authentication target** — personal tokens are implemented; organization-standard OAuth remains the production maturity path
+8. **GTM catalog stewardship** — ownership, restricted-record policy, freshness SLA, and source proposal review coverage
+9. **Notion integration scope** — approved workspaces/data sources and which fields, if any, may be authoritative

@@ -42,6 +42,11 @@ const SECTIONS: { href: string; title: string; desc: string }[] = [
     desc: "Outbox queue, retries, and registry reconciliation runs.",
   },
   {
+    href: "/admin/gtm-data",
+    title: "GTM Data MCP",
+    desc: "People, ownership, systems, accounts, definitions, runbooks, bulk templates, and source reconciliation.",
+  },
+  {
     href: "/admin/audit",
     title: "Audit log",
     desc: "Append-only record of every material action (investigator-readable).",

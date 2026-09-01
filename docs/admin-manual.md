@@ -142,6 +142,57 @@ Filter recipes:
 
 Useful action names: `link.issued`, `link.draft_created`, `link.revised`, `link.retired`, `link.duplicate_override`, `link.duplicate_reused`, `batch.created`, `batch.completed`, `campaign.created`, `campaign.updated`, `initiative.created`, `initiative.updated`, `taxonomy.source.created/updated`, `taxonomy.medium.created/updated`, `preset.created/updated`, `destination_policy.created/updated`, `setting.updated`, `user.created/updated/role_changed`, `outbox.retry_requested`, `reconciliation.run`, `config.exported`, `registry.exported`.
 
+Slack actions use these same events rather than a parallel log. Their correlation IDs begin with `slack:`; the actor is the existing Builder user resolved from the signed Slack user. Review the batch ID for CSV requests. Slack request bodies, bot tokens, signing secrets, and uploaded CSV contents are not copied wholesale into audit events.
+
+## GTM Data MCP administration
+
+Screen: `/admin/gtm-data`, backed by `GET/POST /api/admin/gtm-data`.
+
+### Catalog
+
+The catalog supports these record types: `person`, `team`, `agency`, `vendor`, `system`, `account`, `integration`, `data_term`, `data_field`, `measurement_asset`, `runbook`, `policy`, and `report`.
+
+Every record has a stable type/key, display name, summary, flexible JSON attributes, lifecycle, sensitivity, verification state, source/freshness metadata, version, and audited creator/updater. Use `restricted` only for operationally sensitive information; never put tokens, secrets, passwords, or authentication headers in attributes.
+
+Recommended account attributes include platform account ID, account name, environment, rep/CSM names and contact routes, APIs in use, billing owner, and support tier. Store a link/reference to secrets, never the secret itself.
+
+### Relationships
+
+Relationships form the ownership and lineage graph. Recommended types:
+
+| Purpose | Relationship types |
+|---|---|
+| Accountability | `owns`, `operates`, `approves`, `backup_for`, `escalates_to` |
+| Organization | `member_of`, `agency_for`, `vendor_for`, `account_of` |
+| Systems and data | `integrates_with`, `upstream_of`, `downstream_of`, `consumes`, `produces`, `uses_api` |
+| Documentation | `documented_by`, `defined_by` |
+
+Write relationships in the direction that reads naturally: `team owns system`, `system documented_by runbook`, `source_field upstream_of report`. Do not create duplicate inverse edges unless the inverse carries distinct meaning.
+
+### Readiness
+
+The MCP readiness check currently requires an active lifecycle and an owner/operator to avoid an error; lack of verification, runbook, or reviewed source changes produces warnings. Treat this as a minimum control, not proof that a platform integration or report is technically healthy.
+
+### Bulk templates
+
+The library seeds one verified internal review format plus draft platform starting points. Draft means usable for planning and validation, not certified for upload. Before promoting one to `verified`:
+
+1. Export a current file from the target Runpod account.
+2. Compare headers, object scope, row limits, encoding, identity columns, and update semantics.
+3. Test a small reversible change in a non-critical object.
+4. Link the exact official documentation and record reviewer/date.
+5. Add a rollback template or procedure where the platform supports it.
+
+Google Ads Editor supports CSV import with a proposed-changes review flow; LinkedIn bulk tools may be limited to eligible managed accounts; CM360 uses exported campaign spreadsheets; HubSpot record updates should use unique record IDs. Meta and Reddit seed entries are intentionally planning formats pending account-specific workflow verification.
+
+### Source connectors and detected updates
+
+New connectors start paused and review-first. Configure the Notion source, mapping, and token reference, scan manually, review results, then activate. Approve/reject requires a reason and is audited. Never turn on auto-apply without a narrow authoritative-field allowlist and an owner sign-off.
+
+The scheduled route uses connector leases and deterministic hashes, so repeat or overlapping cron deliveries are safe. A failed source scan leaves the governed catalog untouched and retries on the next due schedule. Full setup and failure semantics: [source-reconciliation.md](source-reconciliation.md).
+
+Additional audit actions include `gtm_catalog.created/updated`, `gtm_relationship.created/updated`, `gtm_bulk_template.created/updated`, `gtm_connector.created/updated`, and `gtm_source_update.applied/rejected`.
+
 ## 10. Configuration versioning semantics
 
 - A single global counter (`config_versions`, row id=1) is bumped inside the same transaction as **every** admin change that affects generation: settings, taxonomy, presets, destination policies.

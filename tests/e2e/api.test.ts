@@ -17,6 +17,7 @@ vi.mock("next/headers", () => ({
 
 process.env.PGLITE_DATA_DIR = ":memory:";
 process.env.OUTBOX_PROCESS_TOKEN = "test-cron-token";
+process.env.SOURCE_SYNC_TOKEN = "test-source-sync-token";
 
 const asUser = (email: string) => {
   currentIdentity = email;
@@ -222,6 +223,19 @@ describe("API end-to-end", () => {
       new Request("http://localhost/api/outbox/process", {
         method: "POST",
         headers: { Authorization: "Bearer test-cron-token" },
+      }),
+    );
+    expect(allowed.status).toBe(200);
+  });
+
+  it("protects the GTM source reconciliation worker with a bearer token", async () => {
+    const worker = await import("@/app/api/source-sync/route");
+    const denied = await worker.POST(jsonRequest("/api/source-sync", "POST"));
+    expect(denied.status).toBe(401);
+    const allowed = await worker.POST(
+      new Request("http://localhost/api/source-sync", {
+        method: "POST",
+        headers: { Authorization: "Bearer test-source-sync-token" },
       }),
     );
     expect(allowed.status).toBe(200);

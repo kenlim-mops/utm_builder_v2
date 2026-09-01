@@ -214,6 +214,56 @@ Format per entry: Status / Context / Options / Decision / Justification / Tradeo
 - **Tradeoffs:** Client approval UX varies, and personal tokens are an interim authentication model.
 - **Revisit trigger:** MCP client adoption, organization OAuth availability, or demand for a separately reviewed administrative tool surface.
 
+## 22. Expand to a GTM Data MCP, keep PostgreSQL authoritative
+
+- **Status:** Accepted
+- **Context:** UTM creation is only one repeated GTM workflow. Agents and operators also need ownership, personnel/team/vendor mappings, platform accounts, integration context, data definitions, lineage, runbooks, reports, policies, and reusable bulk-change guidance. Putting all prose into MCP-specific storage would create another knowledge silo; putting operational identity into Notion would weaken relational controls.
+- **Options:** (a) UTM-only MCP; (b) make Notion the sole MCP database; (c) broaden the existing MCP while preserving authority by data class.
+- **Decision:** Rename the server **GTM Data MCP**. PostgreSQL owns stable operational records, relationships, source evidence, review state, templates, and UTM registry data. Notion remains a linked rich-document source. Secrets remain in approved secret storage. Live platform state remains authoritative in each platform/API.
+- **Justification:** One governed access layer improves discovery without pretending every data class has the same authority. The typed record-plus-edge model accommodates new GTM domains without a schema migration per platform while preserving stable IDs, lifecycle, verification, version, sensitivity, and audit.
+- **Tradeoffs:** Flexible JSON attributes need conventions and validation by record type; search quality depends on disciplined catalog maintenance; broad context increases permission-design importance.
+- **Revisit trigger:** Attribute drift justifies dedicated typed tables for a high-volume record type, or a company data catalog becomes the approved operational authority.
+
+## 23. Review-first source reconciliation with explicit field authority
+
+- **Status:** Accepted
+- **Context:** Notion and other internal sources change over time. Periodic blind mirroring could silently overwrite governed data, while manual-only maintenance goes stale. Scheduled delivery can also overlap or repeat.
+- **Options:** (a) no scanning; (b) source overwrites registry; (c) evidence-preserving reconciliation with proposals and narrow auto-apply.
+- **Decision:** Poll configured sources incrementally, retain raw normalized evidence and hashes, compute field-level proposals, and require approval by default. Auto-apply is allowed only for updates to existing matched records when every changed top-level field is explicitly allowlisted as authoritative. Connector leases, deterministic hashes, supersession, and optimistic record-version checks handle repeat/overlap/conflict safely.
+- **Justification:** Detection and authority are separate questions. Review-first catches drift without promoting accidental edits to truth. Narrow field authority supports eventual low-friction maintenance after a source proves reliable.
+- **Tradeoffs:** A review queue requires ownership and SLA; changes are eventually consistent; top-level `attributes` cannot yet be safely auto-applied at nested-field granularity.
+- **Revisit trigger:** Stable high-volume connector history supports attribute-level policies, Notion webhooks become operationally approved, or review latency exceeds the business SLA.
+
+## 24. Governed bulk-template library without platform write authority
+
+- **Status:** Accepted
+- **Context:** Teams need repeatable mass changes across Google Ads, LinkedIn, CM360, HubSpot, Meta, Reddit, and future platforms, but file formats and eligibility vary and live writes require separate OAuth/security reviews.
+- **Options:** (a) prose-only instructions; (b) direct platform mutation tools; (c) versioned templates with generation, validation, documentation, and verification state.
+- **Decision:** Store versioned bulk templates in PostgreSQL. MCP can list, generate, and validate them but cannot upload or mutate a platform. Seeded platform formats are `draft` until verified against a current account export and official docs; the internal Runpod review format is `verified`.
+- **Justification:** Users gain reusable, Runpod-specific starting points and preflight checks without widening the MCP failure domain or claiming volatile third-party formats are permanently correct.
+- **Tradeoffs:** A human still exports/imports files; draft templates need periodic certification; validation catches structural errors, not every platform business rule.
+- **Revisit trigger:** Repeated usage data supports a separately approved write adapter for one platform, or a platform offers a stable, testable dry-run API.
+
+## 25. One Slack app, two independent service paths
+
+- **Status:** Accepted
+- **Context:** Slack can reduce adoption friction for both deterministic UTM creation and exploratory GTM questions. Treating both as one conversational workflow would make link issuance depend on model tool choice; merging both backends would enlarge the failure domain.
+- **Options:** (a) Slackbot MCP only; (b) `/utm` only; (c) one Slack app presenting deterministic UTM commands/shortcuts plus the separate GTM Data MCP.
+- **Decision:** Use the **Runpod GTM Ops** Slack app. `/utm` and shortcuts call Builder services directly; Slackbot connects to the GTM Data MCP with Slack identity auth. Both repos and their non-Slack interfaces remain independent.
+- **Justification:** Campaign managers get a predictable preview/confirm/reuse experience and 200-row CSV path, while users can ask contextual GTM questions without local agent setup. Shared backend services preserve validation, IDs, duplicate controls, roles, and audit behavior.
+- **Tradeoffs:** Slack administrator approval and cross-service configuration are required; the bot needs narrowly justified scopes; batch completion relies on a follow-up DM.
+- **Revisit trigger:** Slack workflow telemetry shows a different primary entry point, or Runpod standardizes an internal agent platform that can host deterministic forms without weakening issuance controls.
+
+## 26. Map Slack identity to existing Builder users
+
+- **Status:** Accepted
+- **Context:** A signed Slack user ID proves the Slack caller but does not itself define UTM Builder roles or audit identity.
+- **Options:** (a) auto-create users from Slack; (b) use a shared service account; (c) map verified Slack profiles to active Builder accounts.
+- **Decision:** Resolve the signed Slack user through `users.info` work email, with an explicit administrator JSON mapping as fallback. Require an active Builder user and keep all roles in the Builder database.
+- **Justification:** This preserves server-side authorization and per-person audit attribution without a second role system.
+- **Tradeoffs:** Provisioning must keep work emails aligned; email lookup requires `users:read.email`; mapping drift can temporarily block a legitimate user, failing closed.
+- **Revisit trigger:** Runpod SSO exposes a supported Slack-to-employee subject mapping or SCIM-backed identity service.
+
 ---
 
 ## Open decisions
@@ -231,3 +281,6 @@ Not yet decided; each blocks or shapes production rollout:
 9. **Vanity-domain availability tier** — requirements (uptime, ownership, fallback semantics) a redirect/short-link layer would have to meet. **Explicitly future work, not V2**: any such layer sits in front of self-describing URLs and must never become a click-time dependency for attribution.
 10. **Extension distribution ownership** — private Chrome Web Store vs. enterprise browser policy, signing/release owner, and update SLA.
 11. **MCP/API OAuth** — approved authorization server, client registration, token audience, and refresh/revocation expectations that can replace manual personal tokens.
+12. **GTM catalog stewardship** — owner and review SLA for catalog records, restricted-data access, source proposals, and stale verification.
+13. **Notion connector authority** — which Notion data sources/fields may progress from review-first to auto-apply, and who signs off.
+14. **Bulk-template certification cadence** — owner and recertification frequency for each platform/account workflow.

@@ -21,11 +21,13 @@ const DEFAULT_SCOPES = [
   "utm:issue",
   "utm:campaigns:write",
   "utm:initiatives:write",
+  "gtm:read",
+  "gtm:templates",
 ];
 
 export default function AccessTokensPage() {
   const [tokens, setTokens] = useState<AccessTokenRow[]>([]);
-  const [label, setLabel] = useState("My UTM integration");
+  const [label, setLabel] = useState("My GTM Data integration");
   const [clientType, setClientType] = useState<"mcp" | "api">("mcp");
   const [days, setDays] = useState(30);
   const [createdToken, setCreatedToken] = useState("");
@@ -87,7 +89,7 @@ export default function AccessTokensPage() {
     <>
       <h1>API access</h1>
       <p className="page-sub">
-        Create personal tokens for the Runpod UTM MCP server or another approved integration. Browser-extension tokens are issued automatically through SSO and expire after eight hours.
+        Create personal tokens for the Runpod GTM Data MCP or another approved integration. New tokens include the GTM catalog/template scopes and UTM module scopes. Browser-extension tokens are issued automatically through SSO and expire after eight hours.
       </p>
 
       <Msg kind="error">{error}</Msg>

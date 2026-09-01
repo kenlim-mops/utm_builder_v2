@@ -31,7 +31,7 @@ rp_initiative_id? (admin policy, default OFF), rp_link_id? (admin policy, defaul
 
 ### Fast access from other tools
 
-Use the browser extension when you need one URL while working in HubSpot or an ad platform: click the toolbar button for the current page, or right-click a link, then preview and issue from the side panel. Use the web bulk flow for many URLs. Approved scripts and AI tools use the versioned API/MCP server; they still create the same registry records and cannot bypass validation or duplicate checks. See [browser-extension.md](browser-extension.md) and [mcp.md](mcp.md).
+Use the browser extension when you need one URL while working in HubSpot or an ad platform: click the toolbar button for the current page, or right-click a link, then preview and issue from the side panel. In Slack, use `/utm [destination]` for one link or `/utm bulk` for a CSV of up to 200 rows. Use the web bulk flow for grid editing and exception repair. Approved scripts and AI tools use the versioned API/MCP server; every entry point creates the same registry records and cannot bypass validation or duplicate checks. See [browser-extension.md](browser-extension.md), [slack.md](slack.md), and [mcp.md](mcp.md).
 
 All bulk paths produce one **batch** (`rpb_...`) and run every row through the exact same issuance service as the single builder. The batch limit is admin-configurable (default **200** rows).
 
@@ -224,6 +224,9 @@ A campaign that isn't synced to HubSpot is still fully usable — sync is asynch
 | HubSpot state stuck at `pending`/`failed` | Worker/backoff timing or missing token. Links are unaffected; admins can retry from /admin/integrations. |
 | Issuance fails entirely | Registry cannot commit (fail-closed by design). Retry once the registry is healthy; never hand-build URLs in the meantime. |
 | Link edited but ad platform still shows old URL | Expected: registry edits never auto-update external platforms. Re-paste the revised URL. |
+| `/utm` does not open a modal | The Slack app may need approval/reinstallation, the request URL may be stale, or the Builder may be unavailable. Use the web app and notify an administrator. |
+| Slack says no active account is mapped | Your signed Slack profile email does not match an active Builder user. Ask an administrator to align the account or add an explicit mapping. |
+| Bulk CSV was accepted but no DM arrived | Search the web registry by the batch ID if shown, then ask an administrator to inspect Slack delivery and function logs. Issued rows remain authoritative in the registry. |
 
 ## 14. GA4 examples
 

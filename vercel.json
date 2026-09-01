@@ -3,6 +3,10 @@
     {
       "path": "/api/outbox/process",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/source-sync",
+      "schedule": "17 * * * *"
     }
   ]
 }

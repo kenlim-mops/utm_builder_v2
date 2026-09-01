@@ -19,6 +19,8 @@ Tokens are tied to a user, expire in 1–90 days, can be revoked immediately, up
 | `utm:issue` | Issue single links and batches |
 | `utm:campaigns:write` | Create campaigns and their canonical `rpc_` IDs |
 | `utm:initiatives:write` | Create initiatives and their canonical `rpi_` IDs |
+| `gtm:read` | Read GTM catalog, ownership, lineage, definitions, readiness, and authorized source-update context through MCP |
+| `gtm:templates` | List, generate, and validate governed GTM bulk-change templates through MCP |
 
 The first-party web session may also call `/api/v1`; machine clients should always use bearer tokens. The MCP endpoint requires a bearer token and never falls back to cookies.
 

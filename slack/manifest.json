@@ -1,0 +1,62 @@
+{
+  "display_information": {
+    "name": "Runpod GTM Ops",
+    "description": "Create governed UTMs and access Runpod GTM operating context"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Runpod GTM Ops",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/utm",
+        "url": "https://utm.runpod.io/api/slack/commands",
+        "description": "Create one governed UTM or upload a bulk CSV",
+        "usage_hint": "[destination URL] or bulk",
+        "should_escape": false
+      }
+    ],
+    "shortcuts": [
+      {
+        "name": "Create governed UTM",
+        "type": "global",
+        "callback_id": "utm_create_link",
+        "description": "Preview, check duplicates, issue, log, and copy a governed campaign URL"
+      },
+      {
+        "name": "Bulk UTM upload",
+        "type": "global",
+        "callback_id": "utm_bulk_upload",
+        "description": "Upload a CSV of up to 200 governed campaign URLs"
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "commands",
+        "chat:write",
+        "files:read",
+        "mcp:connect",
+        "users:read",
+        "users:read.email"
+      ]
+    }
+  },
+  "settings": {
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://utm.runpod.io/api/slack/interactions"
+    },
+    "org_deploy_enabled": true,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  },
+  "mcp_servers": {
+    "gtm_data": {
+      "url": "https://gtm-data.runpod.io/api/slack/mcp",
+      "auth_type": "slack_identity_auth"
+    }
+  }
+}

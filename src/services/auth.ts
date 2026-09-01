@@ -31,7 +31,9 @@ export type ApiScope =
   | "utm:preview"
   | "utm:issue"
   | "utm:campaigns:write"
-  | "utm:initiatives:write";
+  | "utm:initiatives:write"
+  | "gtm:read"
+  | "gtm:templates";
 
 export interface ApiSessionUser extends SessionUser {
   authMethod: "bearer";

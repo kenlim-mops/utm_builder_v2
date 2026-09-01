@@ -1,5 +1,5 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { createUtmMcpServer } from "@/mcp/server";
+import { createGtmDataMcpServer } from "@/mcp/server";
 import { AuthError, requireBearerApiScope } from "@/services/auth";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +14,10 @@ function jsonRpcError(status: number, message: string) {
 
 export async function POST(req: Request) {
   try {
-    const actor = await requireBearerApiScope(req, "utm:read");
-    const server = createUtmMcpServer(actor);
+    // Authentication occurs here; individual tools enforce their own UTM or
+    // GTM scope so a least-privilege token can expose only one module.
+    const actor = await requireBearerApiScope(req);
+    const server = createGtmDataMcpServer(actor);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

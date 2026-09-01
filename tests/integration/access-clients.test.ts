@@ -80,7 +80,7 @@ describe("API access and integrated clients", () => {
       ...actor,
       authMethod: "bearer",
       tokenId: "tok_test",
-      scopes: ["utm:read", "utm:preview", "utm:issue", "utm:campaigns:write", "utm:initiatives:write"],
+      scopes: ["utm:read", "utm:preview", "utm:issue", "utm:campaigns:write", "utm:initiatives:write", "gtm:read", "gtm:templates"],
     };
     const server = createUtmMcpServer(apiActor, async () => db);
     const client = new Client({ name: "utm-registry-test", version: "1.0.0" });
@@ -90,9 +90,13 @@ describe("API access and integrated clients", () => {
 
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name)).toContain("utm_issue_link");
+    expect(tools.tools.map((tool) => tool.name)).toContain("gtm_resolve_ownership");
     const references = await client.callTool({ name: "utm_list_reference_data", arguments: {} });
     expect(references.isError).not.toBe(true);
     expect(JSON.stringify(references.content)).toContain("google_ads");
+    const definitions = await client.callTool({ name: "gtm_get_data_definition", arguments: { query: "utm_id" } });
+    expect(definitions.isError).not.toBe(true);
+    expect(JSON.stringify(definitions.content)).toContain("Immutable Runpod campaign identifier");
 
     await client.close();
     await server.close();

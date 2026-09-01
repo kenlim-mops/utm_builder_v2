@@ -15,12 +15,18 @@ import {
 import { recordAudit } from "./audit";
 import type { ApiScope, SessionUser } from "./auth";
 
-export const DEFAULT_USER_SCOPES: ApiScope[] = [
+export const UTM_CLIENT_SCOPES: ApiScope[] = [
   "utm:read",
   "utm:preview",
   "utm:issue",
   "utm:campaigns:write",
   "utm:initiatives:write",
+];
+
+export const DEFAULT_USER_SCOPES: ApiScope[] = [
+  ...UTM_CLIENT_SCOPES,
+  "gtm:read",
+  "gtm:templates",
 ];
 
 const ALL_SCOPES = new Set<ApiScope>(DEFAULT_USER_SCOPES);
@@ -215,6 +221,7 @@ export async function exchangeExtensionAuthorizationCode(
       label: "Runpod UTM browser extension",
       clientType: "extension",
       ttlHours: 8,
+      scopes: UTM_CLIENT_SCOPES,
     });
   });
 }

@@ -28,6 +28,11 @@ Ad-hoc UTM tagging produces unjoinable campaign names, silent duplicates, and re
 - Manifest V3 Chrome side panel: capture the current page or right-click a link, preview, issue, log, and copy without leaving the platform workflow
 - Supported `/api/v1` surface with bearer scopes, stable error envelopes, CORS allowlisting, OpenAPI, and idempotent single-link issuance
 - Authenticated remote MCP endpoint with read, preview, search, campaign/initiative creation, single issuance, and batch issuance tools
+- Shared **Runpod GTM Ops** Slack app: `/utm` and global shortcuts for previewed single issuance, CSV upload for 1–200 links, Slack identity mapping, signed-request verification, and direct-message batch results
+- GTM operating catalog for people, teams, agencies, vendors, systems, accounts, integrations, data definitions, measurement assets, reports, policies, and runbooks
+- Typed ownership and lineage relationships, readiness checks, and role-aware restricted-record visibility
+- Governed mass-change template library with CSV generation and preflight validation for Runpod, Google Ads, LinkedIn, CM360, HubSpot, Meta, and Reddit workflows
+- Periodic Notion reconciliation with source evidence, content hashes, field-level proposals, review/approval, optimistic conflict detection, and narrowly allowlisted auto-apply
 
 ## Ways to use it
 
@@ -165,6 +170,9 @@ Health check: `GET /api/health` (checks API + database).
 | [docs/api.md](docs/api.md) | Developers: `/api/v1`, bearer scopes, idempotency, errors, examples |
 | [docs/browser-extension.md](docs/browser-extension.md) | Users/operators: extension workflow, installation, security, rollout |
 | [docs/mcp.md](docs/mcp.md) | AI-tool users/operators: MCP setup, tool safety, token rotation |
+| [docs/slack.md](docs/slack.md) | Slack users/admins: `/utm`, shortcuts, bulk CSV, identity, app manifest, rollout, and failure behavior |
+| [docs/gtm-data-mcp.md](docs/gtm-data-mcp.md) | GTM teams/AI users: complete catalog, ownership, lineage, dictionary, template, and tool model |
+| [docs/source-reconciliation.md](docs/source-reconciliation.md) | Administrators/operators: Notion scanning, proposals, authority, scheduling, and failure safety |
 | [docs/decisions.md](docs/decisions.md) | Everyone: architecture decision records and open decisions |
 
 ## Known limitations (V2)
@@ -176,6 +184,8 @@ Health check: `GET /api/health` (checks API + database).
 - **E2E coverage is API-level**, not browser-driven.
 - **Extension distribution is not automated.** The source package is ready for a private Chrome Web Store or managed-enterprise release after Runpod assigns and allowlists the production extension ID.
 - **MCP currently uses personal bearer tokens.** Tokens are user-scoped, hashed at rest, expire within 90 days, and can be revoked; replace with organization-standard OAuth when that provider is approved.
+- **Notion is the only implemented source adapter.** The connector architecture supports additional internal APIs, but each needs an explicit adapter and authority review.
+- **Source reconciliation defaults to review-first.** Nested attribute-level auto-apply is intentionally not supported yet; allowlisting the whole `attributes` object would be too broad.
 
 ## Failure domains
 
@@ -191,3 +201,6 @@ Health check: `GET /api/health` (checks API + database).
 | Chrome extension unavailable | Unaffected | Web, API, or MCP entry points remain available | The extension is a client of the shared service, not a separate registry |
 | API or MCP client unavailable | Unaffected | Other approved entry points remain available | All interfaces share the same records and generation rules |
 | Optional GA4 custom parameter not captured | Unaffected | Unaffected | Recover initiative membership from `utm_id` through registry/warehouse campaign mappings |
+| Notion/source scan down | Unaffected | Unaffected | Catalog remains at its last governed state; failed runs and stale freshness are visible, and the next schedule retries |
+| Slack unavailable | Unaffected | Web, extension, API, and MCP clients remain available | Slack is an optional client of the shared services; use another approved entry point |
+| GTM Data MCP unavailable | Unaffected | `/utm`, web, extension, and API issuance remain available | Catalog/Slackbot context is independent from deterministic UTM issuance |

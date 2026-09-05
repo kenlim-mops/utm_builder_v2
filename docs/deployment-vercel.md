@@ -36,7 +36,7 @@ Requirements regardless of provider:
 | `NOTION_API_TOKEN` | Production, Preview | `<Notion integration token>` | Required only when a Notion source connector is configured. Store only here; catalog rows carry `env:NOTION_API_TOKEN`, never the token. |
 | `SLACK_SIGNING_SECRET` | Production, Preview | `<Slack app signing secret>` | Verifies `/api/slack/commands` and `/api/slack/interactions`; never expose to clients. |
 | `SLACK_BOT_TOKEN` | Production, Preview | `xoxb-...` | Opens modals, resolves work emails, downloads selected bulk CSV files, and DMs results. |
-| `SLACK_ALLOWED_ENTERPRISE_IDS` | Production | `<Runpod Slack enterprise ID>` | Comma-separated allowlist; configure before enabling Slack issuance. |
+| `SLACK_ALLOWED_ENTERPRISE_IDS` | Production | `<Runpod Slack enterprise ID>` | Comma-separated allowlist. Production Slack access fails closed when both Slack allowlists are empty. |
 | `SLACK_ALLOWED_TEAM_IDS` | Optional | `<workspace IDs>` | Supplements or narrows workspace-level installs. |
 | `SLACK_USER_EMAIL_MAP_JSON` | Optional | `{"U123":"person@runpod.io"}` | Fallback identity mapping when a profile email is unavailable. |
 | `APP_URL` | Production, Preview | `https://utm.runpod.io` | Canonical registry links sent in Slack batch results. |
@@ -117,6 +117,10 @@ The second job scans due active GTM source connectors hourly. Each connector has
   - Failed GTM source sync runs, stale `lastSucceededAt`, and pending proposal backlog
 - Monitoring/alerting *ownership* is an open decision — see [decisions.md](decisions.md).
 
+### Downstream data-plane monitoring
+
+Application monitoring stops at PostgreSQL snapshot creation. Separately monitor the approved PostgreSQL→Snowflake delivery job, GA4 and PostHog parameter capture, Snowflake model freshness/join quality, and Mode report freshness. An outbox success is not evidence that Snowflake received the snapshot. See [reporting-contract.md](reporting-contract.md).
+
 ## 10. Backups and recovery
 
 Two separate mechanisms — do not conflate them:
@@ -131,7 +135,7 @@ Also take periodic config exports (`GET /api/admin/export`) as a lightweight, di
 1. `GET /api/health` → 200, `database: ok`
 2. Sign in via SSO; `GET /api/session` returns your identity with the DB role
 3. `GET /api/taxonomy` returns seeded mediums/sources
-4. Create a test campaign → `201`, response includes `rpc_` ID
+4. Create a test campaign → `201`, response includes `rpc_` ID; attempt a punctuation/spacing variant → `409 campaign_duplicate`; as an administrator, verify a reason-required override creates `campaign.duplicate_override`
 5. Preview a link (`POST /api/links/preview`) → final URL has params in contract order
 6. Issue the link → `201`; re-issue identical input → `409 exact_duplicate`
 7. `GET /api/campaigns/{id}` → HubSpot mapping present (`pending` or `synced`)
@@ -149,7 +153,7 @@ Also take periodic config exports (`GET /api/admin/export`) as a lightweight, di
 
 - [ ] Runpod-approved PostgreSQL provider provisioned, PITR enabled and tested
 - [ ] `DATABASE_URL`, `AUTH_PROVIDER=sso`, `OUTBOX_PROCESS_TOKEN`, `CRON_SECRET` set in Production env
-- [ ] Private/managed Chrome extension published; assigned ID set in `EXTENSION_IDS`
+- [ ] Any pilot-enabled optional client is approved and configured: Slack allowlist, extension ID/distribution, and/or API/MCP token ownership. Unused clients remain disabled.
 - [ ] `ssoProvider()` implemented against the approved IdP; client-header spoofing verified impossible
 - [ ] `ALLOW_DEV_AUTH` **not** set anywhere in production
 - [ ] Migrations applied via explicit release step; seed run once; dev identities deactivated
@@ -164,6 +168,11 @@ Also take periodic config exports (`GET /api/admin/export`) as a lightweight, di
 - [ ] GTM catalog/source-proposal steward and review SLA assigned
 - [ ] Every enabled Notion connector mapping tested in paused/review-first mode; `NOTION_API_TOKEN` scoped only to approved sources
 - [ ] Platform bulk templates remain draft until account-specific export/import certification is complete
+- [ ] Production effective date, pilot cohort, governance owner, support route, and exception SLA approved per [pilot-governance.md](pilot-governance.md)
+- [ ] Marketing site explicitly captures governed parameters in GA4 and PostHog; payload and downstream-row evidence retained
+- [ ] PostgreSQL snapshot delivery to Snowflake is implemented, monitored, replayable, and assigned to an owner
+- [ ] Certified Snowflake dimensions/fact and the initial Mode quality report pass the [reporting contract](reporting-contract.md)
+- [ ] Historical traffic is labeled and mapped under [historical-migration.md](historical-migration.md); raw values remain unchanged
 
 ## 13. Runpod approval dependencies
 
@@ -178,3 +187,5 @@ Explicitly blocked on internal approval (tracked in [decisions.md](decisions.md)
 7. **MCP authentication target** — personal tokens are implemented; organization-standard OAuth remains the production maturity path
 8. **GTM catalog stewardship** — ownership, restricted-record policy, freshness SLA, and source proposal review coverage
 9. **Notion integration scope** — approved workspaces/data sources and which fields, if any, may be authoritative
+10. **Snowflake delivery** — approved connector/job, owner, freshness SLA, backfill procedure, and Mode certification path
+11. **Analytics capture** — owners and verified implementation for GA4 and PostHog landing, session, and first-touch fields

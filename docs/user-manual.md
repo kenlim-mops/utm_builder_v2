@@ -13,7 +13,7 @@ Audience: campaign managers and anyone issuing governed campaign URLs.
 
 ## 2. Creating a single link
 
-1. **Pick (or create) the campaign.** Links cannot be issued without a canonical campaign — you will get the `missing_campaign` error otherwise. The campaign supplies `utm_id` (its `rpc_` ID) and `utm_campaign` (its canonical slug); you do not type either.
+1. **Search, then pick (or create) the campaign.** Links cannot be issued without a canonical campaign. The campaign supplies `utm_id` (its `rpc_` ID) and `utm_campaign` (its canonical slug); you do not type either. When a spacing/punctuation variant already exists, creation returns a candidate to reuse. Only an administrator can create a genuinely separate campaign, and must record why.
 2. **Pick a preset** (defaults to `generic`). Presets can pre-fill `utm_source`/`utm_medium` and may require extra fields (e.g. Google Ads, LinkedIn, Meta, and HubSpot/Email require `utm_content`).
 3. **Enter the destination.** Bare domains, `www.` hosts, and `http://` URLs are accepted and normalized to HTTPS. Any query params or fragment you include are preserved — except governed params, which are replaced.
 4. **Enter source / medium / content / term.** Source and medium must exist in the governed taxonomy (aliases are accepted with a warning and resolved to the canonical value).
@@ -63,6 +63,7 @@ Rule of thumb: if you'd ever want a single rollup number for "the launch" across
 
 - **Campaign performance:** filter on **equality** of `utm_id` (= the `rpc_` campaign ID). This is GA4's native session campaign ID dimension.
 - **Launch/initiative rollup:** use `rp_initiative_id` (if the admin has enabled it and configured GA4 capture), or join observed `utm_id` values to the registry's campaign→initiative mapping.
+- **PostHog:** the Runpod marketing site must explicitly retain `utm_id` and supporting URL values on landing and downstream events. Generation does not prove capture; confirm the event payload and Snowflake row.
 - **Name filters (`utm_campaign` contains "...") are exploratory only.** Never build a recurring report on name substring matching — names drift, IDs don't. See [reporting-contract.md](reporting-contract.md).
 
 ## 6. Presets
@@ -142,6 +143,8 @@ Rejected outright (blocking errors): empty destination, unparseable URLs, non-ht
 | `near_duplicate` | A very similar link exists (see §9) |
 
 ## 9. Duplicates: reuse vs. override vs. revision
+
+Campaign creation also checks semantically equivalent names/slugs after normalizing case, punctuation, underscores, periods, spaces, and hyphens. Reuse the returned campaign whenever it represents the same reporting unit. An administrator may create a separate campaign only with a written justification; the new campaign, candidate IDs, actor, and reason are recorded as `campaign.duplicate_override`.
 
 **Exact duplicates** — same fingerprint: normalized destination (governed params stripped, query sorted, trailing slash trimmed), initiative, campaign, canonical source/medium/campaign/content/term, preset, and preset static params. Blocked by a database unique index; timing games can't slip one through.
 

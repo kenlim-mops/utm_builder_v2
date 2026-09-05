@@ -10,6 +10,12 @@ Ad-hoc UTM tagging produces unjoinable campaign names, silent duplicates, and re
 - **One generation service.** Every entry point (single builder, bulk grid, spreadsheet paste, CSV upload, browser extension, versioned API, and MCP server) calls the same `previewLink`/`issueLink` implementation in `src/services/links.ts`. There is exactly one implementation of normalization, validation, fingerprinting, duplicate policy, and audit.
 - **Self-describing URLs.** Issued links carry all identifiers in their query string. Nothing is looked up at click time — a registry outage never breaks an existing link.
 
+## Current maturity and rollout
+
+**Status: pilot-ready software, not yet a company operating standard.** Core generation, registry, identifiers, bulk handling, validation, duplicate control, audit, and optional clients are implemented. A production pilot still requires approved SSO/PostgreSQL, named operating and analytics owners, an effective-date policy, downstream GA4/PostHog capture, Snowflake delivery, and Mode validation.
+
+Use the smallest useful end-to-end pilot first: web + registry + approved taxonomy/presets + GA4/PostHog capture + Snowflake/Mode. Enable Slack, the extension, API/MCP, source reconciliation, and platform templates in phases as their owners and approvals are ready; they remain independently deployable clients rather than launch dependencies. See the [pilot and governance plan](docs/pilot-governance.md).
+
 ## Features
 
 - Single-link builder with live preview, validation, and duplicate detection
@@ -17,11 +23,12 @@ Ad-hoc UTM tagging produces unjoinable campaign names, silent duplicates, and re
 - Prefixed-ULID identifier scheme (`rpi_`, `rpc_`, `rpl_`, ... — see [ID glossary](docs/user-manual.md#id-glossary)); 128-bit, non-sequential, immutable; DB sequences never exposed
 - Deterministic URL contract: `utm_id, utm_source, utm_medium, utm_campaign, utm_content?, utm_term?, rp_initiative_id?, rp_link_id?` in that order; governed params replaced, never duplicated; unrelated params and fragments preserved
 - Exact-duplicate blocking via SHA-256 fingerprint + DB partial unique index; role-gated, reason-required, audited override; near-duplicate warnings
+- Semantic campaign duplicate detection for punctuation/spacing variants; reuse by default and administrator-only, reason-required audited override
 - Immutable revisions (`rpr_`) for issued links — link ID and `utm_id` never change
 - Governed taxonomy (mediums, sources, aliases), destination-domain policies, platform presets — all versioned and audited
 - Local/syntactic validation V2: destination safety (incl. private-network blocking), approved domains, taxonomy membership, alias resolution, source↔medium relationship, preset macros, required fields
 - HubSpot campaign sync via transactional outbox (idempotent, retried with backoff, dead-lettered, reconcilable)
-- Versioned registry snapshots for warehouse conformed dimensions
+- Versioned registry snapshots staged in PostgreSQL for downstream Snowflake conformed dimensions
 - Append-only audit trail with before/after diffs and secret redaction
 - Roles: `user`, `admin`, `investigator` (read-only audit/integration access); all enforcement server-side
 - Fail-closed issuance: a URL exists only if the registry transaction committed
@@ -76,8 +83,8 @@ One registry, one generation API, multiple entry points:
                                      ┌─────────────────────────────────┐
                                      │  Async integrations (retried,   │
                                      │  idempotent, dead-lettered):    │
-                                     │  HubSpot campaigns, warehouse   │
-                                     │  snapshots                      │
+                                     │  HubSpot campaigns, PostgreSQL  │
+                                     │  snapshot staging               │
                                      └─────────────────────────────────┘
 ```
 
@@ -92,9 +99,11 @@ V2 is designed to expand reporting choices without changing the canonical identi
 - **Link and placement reporting:** the optional `rp_link_id` identifies the exact governed URL or placement, enabling more granular analysis than campaign-level UTMs alone.
 - **HubSpot reporting:** HubSpot campaign GUIDs are synchronized asynchronously and stored as external mappings; they supplement rather than replace the Runpod campaign ID.
 - **Warehouse reporting:** versioned campaign, initiative, and link snapshots support conformed dimensions, historical reconstruction, reconciliation, and reporting without querying a live application API.
+- **PostHog reporting:** the contract defines explicit landing-event and first-touch properties for `utm_id`, initiative, link, raw UTMs, and landing URL; URL generation alone is never treated as proof of capture.
+- **Snowflake and Mode:** the contract defines recommended raw/conformed models, exact-ID joins, quality gates, and Mode-facing certified views. The application stages snapshots in PostgreSQL; a separately owned delivery job or connector must move them to Snowflake.
 - **Operational access:** the web registry, exports, versioned API, and MCP search tools provide additional ways to inspect and use governed campaign metadata.
 
-These options are additive. Human-readable UTM names remain available for interpretation, while stable IDs provide durable joins and allow campaign-, initiative-, or link-level reporting according to the business question. See the [reporting contract](docs/reporting-contract.md) for GA4 setup, warehouse mappings, recovery paths, and sample SQL.
+These options are additive. Human-readable UTM names remain available for interpretation, while stable IDs provide durable joins and allow campaign-, initiative-, or link-level reporting according to the business question. See the [reporting contract](docs/reporting-contract.md) for GA4/PostHog capture, Snowflake/Mode mappings, recovery paths, and sample SQL.
 
 ## Durability and failure isolation
 
@@ -102,9 +111,9 @@ The system assumes individual components will sometimes fail and isolates those 
 
 - **No click-time dependency:** issued URLs are direct and self-describing. An application, database, integration, extension, API, or MCP outage cannot interrupt traffic through existing links.
 - **Fail-closed issuance:** a new URL is returned only after its registry record, identifiers, and audit event commit successfully in one database transaction.
-- **Asynchronous integrations:** HubSpot and warehouse work is written to a transactional outbox, retried with exponential backoff, dead-lettered visibly, and reconcilable. An integration outage does not block link issuance.
+- **Asynchronous integrations:** HubSpot work and PostgreSQL snapshot staging are written to a transactional outbox, retried with exponential backoff, dead-lettered visibly, and reconcilable. An integration outage does not block link issuance.
 - **Idempotent retries:** fingerprints, database constraints, outbox idempotency keys, and API idempotency prevent duplicate records when clients or workers retry.
-- **Multiple reporting recovery paths:** raw identifiers remain in issued URLs and registry records, versioned snapshots feed the warehouse, and initiative membership can be reconstructed from `utm_id` even when an optional custom parameter was not captured.
+- **Multiple reporting recovery paths:** raw identifiers remain in issued URLs and registry records, versioned snapshots are available for Snowflake delivery, and initiative membership can be reconstructed from `utm_id` even when an optional custom parameter was not captured.
 - **Versioned, reversible configuration:** taxonomy, presets, destination policies, and settings are versioned and audited. Bad configuration is rolled back by applying the prior value as a new audited change; affected links remain identifiable by configuration version.
 - **Separate application and data recovery:** operators can promote a previous application build for bad code releases, use PostgreSQL point-in-time recovery for data incidents, and use config/audit exports for comparison and reconstruction.
 - **Health and reconciliation controls:** the health endpoint, cron/outbox status, dead-letter alerts, and reconciliation runs make silent partial failure visible.
@@ -166,7 +175,9 @@ Health check: `GET /api/health` (checks API + database).
 | [docs/user-manual.md](docs/user-manual.md) | Campaign managers: creating links, bulk flows, duplicates, reporting IDs |
 | [docs/admin-manual.md](docs/admin-manual.md) | Administrators: taxonomy, policies, presets, roles, audit, incidents |
 | [docs/deployment-vercel.md](docs/deployment-vercel.md) | Operators: Vercel setup, env vars, SSO contract, cron, backups |
-| [docs/reporting-contract.md](docs/reporting-contract.md) | Analysts: ID hierarchy, GA4 setup, warehouse joins, sample SQL |
+| [docs/reporting-contract.md](docs/reporting-contract.md) | Analysts: GA4/PostHog capture, Snowflake models, Mode contract, joins, QA, sample SQL |
+| [docs/pilot-governance.md](docs/pilot-governance.md) | Owners and pilot teams: maturity, policy, RACI, adoption measures, phased rollout |
+| [docs/historical-migration.md](docs/historical-migration.md) | Analytics/MOPS: forward-control effective date, legacy crosswalk, confidence and coexistence |
 | [docs/api.md](docs/api.md) | Developers: `/api/v1`, bearer scopes, idempotency, errors, examples |
 | [docs/browser-extension.md](docs/browser-extension.md) | Users/operators: extension workflow, installation, security, rollout |
 | [docs/mcp.md](docs/mcp.md) | AI-tool users/operators: MCP setup, tool safety, token rotation |
@@ -186,6 +197,8 @@ Health check: `GET /api/health` (checks API + database).
 - **MCP currently uses personal bearer tokens.** Tokens are user-scoped, hashed at rest, expire within 90 days, and can be revoked; replace with organization-standard OAuth when that provider is approved.
 - **Notion is the only implemented source adapter.** The connector architecture supports additional internal APIs, but each needs an explicit adapter and authority review.
 - **Source reconciliation defaults to review-first.** Nested attribute-level auto-apply is intentionally not supported yet; allowlisting the whole `attributes` object would be too broad.
+- **Snowflake delivery is not implemented in this repository.** The transactional outbox writes versioned snapshots to application PostgreSQL; an approved ingestion job/connector, freshness monitor, and backfill runbook are required before Mode reporting is production-ready.
+- **GA4/PostHog capture is a downstream implementation.** The builder emits identifiers, but the Runpod marketing site and analytics pipelines must be configured and verified to retain them.
 
 ## Failure domains
 
@@ -196,11 +209,12 @@ Health check: `GET /api/health` (checks API + database).
 | Bad database migration or data change | Unaffected | Paused until integrity is verified | Use provider point-in-time recovery only for data incidents, then reconcile HubSpot and warehouse state |
 | Bad taxonomy, preset, destination, or settings change | Unaffected | Pause affected issuance | Reapply the audited prior configuration; identify affected links by configuration version |
 | HubSpot unavailable or token missing | Unaffected | Unaffected | Events queue in the outbox, retry with backoff, dead-letter visibly, and remain reconcilable |
-| Warehouse ingestion unavailable | Unaffected | Unaffected | Snapshot events queue; reconciliation identifies and backfills missing snapshots |
+| PostgreSQL snapshot staging unavailable | Unaffected | Unaffected | Snapshot events queue; reconciliation identifies and backfills missing application snapshots |
+| PostgreSQL→Snowflake delivery unavailable | Unaffected | Unaffected | Application snapshots remain staged; the separately owned delivery job must alert, replay idempotently, and restore its freshness SLA |
 | Outbox worker or cron unavailable | Unaffected | Unaffected | Events accumulate as `pending` and process when the worker resumes or through a manual run |
 | Chrome extension unavailable | Unaffected | Web, API, or MCP entry points remain available | The extension is a client of the shared service, not a separate registry |
 | API or MCP client unavailable | Unaffected | Other approved entry points remain available | All interfaces share the same records and generation rules |
-| Optional GA4 custom parameter not captured | Unaffected | Unaffected | Recover initiative membership from `utm_id` through registry/warehouse campaign mappings |
+| Optional GA4/PostHog custom parameter not captured | Unaffected | Unaffected | Recover initiative membership from captured `utm_id`; treat loss of `utm_id` itself as a measurement incident |
 | Notion/source scan down | Unaffected | Unaffected | Catalog remains at its last governed state; failed runs and stale freshness are visible, and the next schedule retries |
 | Slack unavailable | Unaffected | Web, extension, API, and MCP clients remain available | Slack is an optional client of the shared services; use another approved entry point |
 | GTM Data MCP unavailable | Unaffected | `/utm`, web, extension, and API issuance remain available | Catalog/Slackbot context is independent from deterministic UTM issuance |

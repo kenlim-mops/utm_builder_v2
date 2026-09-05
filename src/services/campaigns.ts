@@ -5,7 +5,7 @@
  */
 import { asc, eq } from "drizzle-orm";
 import { isValidId, newId } from "@/core/ids";
-import { canonicalUtmValue } from "@/core/url";
+import { canonicalUtmValue, looseUtmValue } from "@/core/url";
 import type { Db } from "@/db/client";
 import { campaigns, externalCampaignMappings, initiatives } from "@/db/schema";
 import { prefixedUlid } from "@/core/ids";
@@ -22,12 +22,67 @@ export interface CampaignInput {
   startDate?: string | null;
   endDate?: string | null;
   description?: string | null;
+  duplicateAction?: "override" | null;
+  duplicateReason?: string | null;
+}
+
+export interface CampaignDuplicateCandidate {
+  id: string;
+  name: string;
+  utmCampaign: string;
+  initiativeId: string | null;
+  lifecycle: "planned" | "active" | "completed" | "archived";
+}
+
+export class CampaignDuplicateError extends Error {
+  constructor(public readonly candidates: CampaignDuplicateCandidate[]) {
+    super("A semantically equivalent campaign already exists. Reuse it or have an administrator record a justified override.");
+    this.name = "CampaignDuplicateError";
+  }
+}
+
+function semanticCampaignKey(value: string): string {
+  return looseUtmValue(value).replace(/-/g, "");
+}
+
+/** Deterministic, deliberately conservative check for punctuation/spacing variants. */
+export async function findCampaignDuplicates(db: Db, input: Pick<CampaignInput, "name" | "utmCampaign">) {
+  const requestedKeys = new Set([
+    semanticCampaignKey(input.name),
+    semanticCampaignKey(input.utmCampaign?.trim() || input.name),
+  ]);
+  const rows = await db
+    .select({
+      id: campaigns.id,
+      name: campaigns.name,
+      utmCampaign: campaigns.utmCampaign,
+      initiativeId: campaigns.initiativeId,
+      lifecycle: campaigns.lifecycle,
+    })
+    .from(campaigns);
+  return rows.filter((row) =>
+    row.lifecycle !== "archived" &&
+    (requestedKeys.has(semanticCampaignKey(row.name)) ||
+      requestedKeys.has(semanticCampaignKey(row.utmCampaign))),
+  );
 }
 
 export async function createCampaign(db: Db, actor: SessionUser, input: CampaignInput) {
   const name = input.name?.trim();
   if (!name) throw new Error("Campaign name is required.");
   const utmCampaign = canonicalUtmValue(input.utmCampaign?.trim() || name);
+  const duplicateCandidates = await findCampaignDuplicates(db, { name, utmCampaign });
+  if (duplicateCandidates.length > 0 && input.duplicateAction !== "override") {
+    throw new CampaignDuplicateError(duplicateCandidates);
+  }
+  const duplicateReason = input.duplicateReason?.trim() || null;
+  if (input.duplicateAction === "override") {
+    if (duplicateCandidates.length === 0) {
+      throw new Error("A campaign duplicate override may only be used when a duplicate candidate exists.");
+    }
+    if (actor.role !== "admin") throw new Error("Only an administrator may override a campaign duplicate warning.");
+    if (!duplicateReason) throw new Error("A reason is required to override a campaign duplicate warning.");
+  }
   if (input.initiativeId) {
     if (!isValidId("initiative", input.initiativeId)) throw new Error("Invalid initiative ID.");
     const found = await db
@@ -84,6 +139,16 @@ export async function createCampaign(db: Db, actor: SessionUser, input: Campaign
       entityId: row.id,
       after: row,
     });
+    if (duplicateCandidates.length > 0) {
+      await recordAudit(tx, actor, {
+        action: "campaign.duplicate_override",
+        entityType: "campaign",
+        entityId: row.id,
+        after: row,
+        reason: duplicateReason,
+        context: { candidateIds: duplicateCandidates.map((candidate) => candidate.id) },
+      });
+    }
     return row;
   });
 }
@@ -92,7 +157,7 @@ export async function updateCampaign(
   db: Db,
   actor: SessionUser,
   id: string,
-  patch: Partial<Omit<CampaignInput, "utmCampaign">> & {
+  patch: Partial<Omit<CampaignInput, "utmCampaign" | "duplicateAction" | "duplicateReason">> & {
     lifecycle?: "planned" | "active" | "completed" | "archived";
   },
   reason: string | null,

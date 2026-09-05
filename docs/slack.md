@@ -40,7 +40,7 @@ Every row uses `createBatch` → `issueLink`. Invalid rows and exact duplicates 
 
 ## Identity and authorization
 
-Slack requests are accepted only after HMAC verification with `SLACK_SIGNING_SECRET` and rejection of timestamps older/newer than five minutes. Production should set Runpod's enterprise ID in `SLACK_ALLOWED_ENTERPRISE_IDS`; workspace IDs can also be allowlisted.
+Slack requests are accepted only after HMAC verification with `SLACK_SIGNING_SECRET` and rejection of timestamps older/newer than five minutes. Production must set Runpod's enterprise ID in `SLACK_ALLOWED_ENTERPRISE_IDS` and/or approved workspace IDs in `SLACK_ALLOWED_TEAM_IDS`. If both allowlists are empty in production, all Slack identities are denied. Unconfigured allowlists are permitted only for local/test use.
 
 For issuance, the app maps the signed Slack user to an active UTM Builder account:
 
@@ -76,7 +76,7 @@ Add these Vercel variables to the UTM Builder project:
 | --- | --- | --- |
 | `SLACK_SIGNING_SECRET` | Yes | Verify slash-command and interaction requests |
 | `SLACK_BOT_TOKEN` | Yes | Open modals, resolve profiles, download selected CSV files, and send DMs |
-| `SLACK_ALLOWED_ENTERPRISE_IDS` | Production | Limit requests to the Runpod enterprise org |
+| `SLACK_ALLOWED_ENTERPRISE_IDS` | Production | Limit requests to the Runpod enterprise org; one Slack allowlist is required because production fails closed |
 | `SLACK_ALLOWED_TEAM_IDS` | Optional | Limit or supplement approved workspace IDs |
 | `SLACK_USER_EMAIL_MAP_JSON` | Optional | Explicit Slack-user-to-Builder-email fallback mappings |
 | `APP_URL` | Yes | Canonical Builder URL used in registry links sent to Slack |

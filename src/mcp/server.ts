@@ -334,7 +334,7 @@ export function createGtmDataMcpServer(
     "utm_create_campaign",
     {
       title: "Create UTM campaign",
-      description: "Create the canonical campaign record and immutable rpc_ ID used as utm_id. This writes to the registry and is audited.",
+      description: "Create the canonical campaign record and immutable rpc_ ID used as utm_id. Semantic duplicates return candidates to reuse; an administrator may use a reason-required audited override. This writes to the registry.",
       inputSchema: {
         name: z.string().min(1).max(160),
         utmCampaign: z.string().optional(),
@@ -344,6 +344,8 @@ export function createGtmDataMcpServer(
         startDate: z.string().nullable().optional(),
         endDate: z.string().nullable().optional(),
         description: z.string().nullable().optional(),
+        duplicateAction: z.enum(["override"]).nullable().optional().describe("Administrator-only. Use only after reviewing returned duplicate candidates."),
+        duplicateReason: z.string().max(1000).nullable().optional().describe("Required justification when duplicateAction=override."),
         confirmed: z.boolean().describe("Must be true to confirm this registry write."),
       },
     },

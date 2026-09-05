@@ -1,184 +1,195 @@
 # Reporting Contract
 
-The stable interface between issued URLs, GA4, HubSpot, and the warehouse. Analysts can rely on everything in this document; anything not stated here (especially name formats) is *not* contractual.
-
----
+The stable interface between governed URLs, GA4, PostHog, HubSpot, Snowflake, and Mode. Analysts may rely on the identifiers and relationships below. Names and label formats are descriptive, not durable join keys.
 
 ## 1. Identifier hierarchy
 
-```
-Initiative  (rpi_...)   optional grouping — launches, GTM motions
-    └── Campaign (rpc_...)   the canonical reporting unit — carried in utm_id
-            └── Link (rpl_...)   one governed URL / placement — carried in rp_link_id (policy-gated)
-```
-
-- All IDs are prefixed ULIDs: 128-bit, non-sequential, immutable. They never encode business meaning and are never reused.
-- `utm_id` **is** the campaign ID. The campaign's display name and `utm_campaign` slug are human conveniences; the ID is the join key.
-- The campaign→initiative mapping lives in the registry (`campaigns.initiative_id`) and is snapshotted to the warehouse — so initiative rollups never require the initiative ID to have been captured at click time.
-
-## 2. URL parameter contract
-
-Governed parameters, always in this order:
-
-| Position | Param | Content | Presence |
-|---|---|---|---|
-| 1 | `utm_id` | Canonical campaign ID (`rpc_...`) | Always |
-| 2 | `utm_source` | Canonical taxonomy source slug | Always |
-| 3 | `utm_medium` | Canonical taxonomy medium slug | Always |
-| 4 | `utm_campaign` | Canonical campaign slug (human-readable) | Always |
-| 5 | `utm_content` | Canonicalized content value | If provided |
-| 6 | `utm_term` | Canonicalized term value | If provided |
-| 7 | `rp_initiative_id` | Initiative ID (`rpi_...`) | Policy-gated, default **OFF** |
-| 8 | `rp_link_id` | Link ID (`rpl_...`) | Policy-gated, default **ON** |
-
-Full example (initiative param enabled for illustration):
-
-```
-https://runpod.io/gpu-cloud?ref=partner
-  &utm_id=rpc_01J9V5DQ3E8Z4Y2W1XKQGT7MNB
-  &utm_source=google-ads
-  &utm_medium=paid
-  &utm_campaign=h100-summer-launch
-  &utm_content=exact-h100
-  &utm_term=h100-rental
-  &rp_initiative_id=rpi_01J9V5AHXW3T9RQZKM2C4B8DFE
-  &rp_link_id=rpl_01J9V5F2N7PXH6GJWB3YQ0K9SC
+```text
+Initiative  (rpi_...)       optional launch / GTM-motion grouping
+    └── Campaign (rpc_...)  canonical reporting unit; emitted as utm_id
+            └── Link (rpl_...)  exact governed URL/placement; optionally emitted as rp_link_id
 ```
 
-Guarantees:
+- IDs are immutable, non-sequential prefixed ULIDs and are never reassigned.
+- `utm_id` equals the registry campaign ID. `utm_campaign` is a human-readable slug.
+- Campaign-to-initiative membership is stored in the registry and its snapshots. Initiative rollups are recoverable from `utm_id` even when `rp_initiative_id` was not captured.
+- `rp_link_id` supports URL/placement-level QA. It is not a platform click ID and does not replace `gclid`, `fbclid`, or equivalent identifiers.
 
-- Pre-existing non-governed params (`ref=partner`) and fragments are preserved; governed params on the input destination are **replaced, never duplicated**.
-- URLs are self-describing: no redirect, registry, HubSpot, or warehouse lookup happens at click time.
-- Each link row records exactly which `rp_*` params it emitted, so policy changes over time stay interpretable.
+## 2. URL and capture contract
 
-## 3. GA4
+| Parameter | Meaning | URL presence | GA4 | PostHog | Snowflake role |
+|---|---|---|---|---|---|
+| `utm_id` | `rpc_` campaign ID | Always | Native campaign ID | Explicitly persist as `utm_id` and `initial_utm_id` | Primary governed campaign join |
+| `utm_source` | Governed source slug | Always | Native source | Persist observed and initial value | Channel dimension |
+| `utm_medium` | Governed medium slug | Always | Native medium | Persist observed and initial value | Channel dimension |
+| `utm_campaign` | Human campaign slug | Always | Native campaign name | Persist observed and initial value | Label/diagnostic, not primary join |
+| `utm_content` | Creative/content distinction | When supplied | Native ad content | Persist observed value | Creative breakdown |
+| `utm_term` | Keyword/targeting distinction | When supplied | Native term | Persist observed value | Search/targeting breakdown |
+| `rp_initiative_id` | `rpi_` initiative ID | Policy-gated; default off | Custom event dimension | Explicitly persist when present | Direct initiative evidence; registry mapping remains fallback |
+| `rp_link_id` | `rpl_` governed link ID | Policy-gated; default on | Custom event dimension if needed | Explicitly persist when present | Placement/link join and QA |
 
-### Native (no setup)
+The builder replaces pre-existing governed keys rather than duplicating them, preserves unrelated parameters and fragments, and returns direct landing URLs. No click-time registry lookup occurs.
 
-- **`utm_id` → Session campaign ID / campaign ID** (`sessionCampaignId` / `campaignId`). Campaign reporting = equality filter on this dimension.
-- **`utm_campaign` → Session campaign name.** Use for display labels, not joins.
+## 3. Measurement implementation
 
-### `rp_initiative_id` custom dimension (setup required)
+### GA4
 
-GA4 ignores non-utm params unless captured explicitly:
+GA4 recognizes `utm_id` as campaign ID and standard UTM fields as manual traffic-source dimensions. Runpod must still test actual collection and reporting scope in its property, especially where ad-platform auto-tagging is also present.
 
-1. **GTM:** create a URL variable reading query key `rp_initiative_id`; send it as an event parameter `rp_initiative_id` on page_view (e.g. via the GA4 configuration tag's fields/parameters).
-   Or **gtag:**
+For `rp_initiative_id` and `rp_link_id`, read the query parameter on the first landing page, attach it to the relevant GA4 event(s), and register event-scoped custom dimensions if UI reporting is required. Custom definitions are forward-only; Snowflake recovery must not depend on them.
 
-   ```js
-   gtag('config', 'G-XXXXXXX', {
-     rp_initiative_id: new URLSearchParams(location.search).get('rp_initiative_id')
-   });
-   ```
+Required GA4 QA evidence for each pilot channel:
 
-2. **Register the custom dimension** in GA4 Admin → Custom definitions: dimension name `rp_initiative_id`, **event-scoped**, event parameter `rp_initiative_id`.
+1. browser/network event shows the original `page_location` and expected parameters;
+2. DebugView/realtime evidence shows campaign ID and required custom event parameters;
+3. exported/ingested GA4 row retains the observed campaign ID;
+4. Snowflake row joins that value to exactly one registry campaign.
 
-**Caveats:** custom dimensions populate only from registration time forward (no backfill), and any capture gap (tag misconfiguration, param disabled at issuance — it is OFF by default) produces empty values. This is why the parameter is optional and the recovery path below is the contract, not the custom dimension.
+Google recommends setting the relevant UTM set together and documents `utm_id` as the campaign identifier. See [Google Analytics manual tagging](https://support.google.com/analytics/answer/11242870?hl=en) and [URL parameter guidance](https://support.google.com/analytics/answer/10917952?hl=en).
 
-### Recovery path (contractual)
+### PostHog
 
-Initiative attribution is always reconstructable from `utm_id` alone: `utm_id` → registry campaign → `initiative_id`. Implemented as `reconstructInitiativeReport()` in `src/services/reconciliation.ts`, which attributes each raw touch as `rp_initiative_id` (when captured), `utm_id_registry_mapping` (recovered), or `unmatched`.
+Do not assume that a custom query parameter is automatically retained with the desired first-touch/session semantics. The marketing-site implementation must explicitly parse governed parameters at landing and attach them to the landing `$pageview` (or a dedicated `marketing landing viewed` event). It should then:
 
-## 4. Warehouse mappings
+- use event properties for the observed landing values: `utm_id`, `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`, `rp_initiative_id`, `rp_link_id`, and `landing_url`;
+- register current-session campaign properties when downstream events need the same touch context;
+- use one-time properties such as `initial_utm_id` for first-touch analysis, without overwriting them on later visits;
+- clear or intentionally refresh session-level values at the agreed session boundary;
+- preserve the raw landing URL so lost or malformed parsing can be repaired.
 
-| Table | Contents | Use |
+PostHog documents event properties, super properties, and `register_once`; these are implementation primitives, not evidence that the Runpod site already captures the contract. See [PostHog JavaScript usage](https://posthog.com/docs/libraries/js/usage).
+
+Required PostHog QA evidence mirrors GA4: captured event payload, PostHog event/property visibility, downstream export visibility, and exact Snowflake registry join.
+
+### HubSpot
+
+HubSpot campaign GUID is an external mapping, not the canonical identity. `external_campaign_mappings` maintains `rpc_ campaign_id ↔ HubSpot campaignGuid` with sync state. A HubSpot outage may delay that mapping but must not change `utm_id` or block issued traffic.
+
+## 4. Delivery boundary: application PostgreSQL is not Snowflake
+
+The application currently creates versioned snapshot rows in its own PostgreSQL `warehouse_snapshots` table through the transactional outbox. That is a durable staging boundary. **This repository does not implement or operate the final PostgreSQL-to-Snowflake transfer.**
+
+Before production reporting, Runpod must approve and operate a delivery job or managed connector with:
+
+- incremental watermark plus overlap window;
+- idempotent merge/deduplication by snapshot ID and entity version;
+- raw payload retention and load metadata;
+- retry/dead-letter visibility;
+- schema-change handling;
+- freshness and completeness monitoring;
+- a named owner and backfill runbook.
+
+The outbox event being `succeeded` proves the PostgreSQL snapshot was written. It does not prove Snowflake or Mode received it.
+
+## 5. Recommended Snowflake layers
+
+| Layer/object | Grain and purpose |
+|---|---|
+| `RAW.UTM_REGISTRY_SNAPSHOTS` | One delivered application snapshot; immutable raw JSON plus load metadata |
+| `RAW.GA4_EVENTS` | Existing GA4 export/ingestion grain; preserve campaign fields and page location |
+| `RAW.POSTHOG_EVENTS` | Existing PostHog export/ingestion grain; preserve event properties and landing URL |
+| `GOVERNANCE.LEGACY_UTM_CROSSWALK` | One approved time-bounded historical mapping; see migration guide |
+| `ANALYTICS.DIM_GTM_INITIATIVE` | One current initiative plus history strategy |
+| `ANALYTICS.DIM_GTM_CAMPAIGN` | One `rpc_` campaign with initiative and external mappings |
+| `ANALYTICS.DIM_GTM_LINK` | One `rpl_` link/revision context |
+| `ANALYTICS.FCT_MARKETING_TOUCH` | One analytically defined touch/event/session with raw and resolved identifiers |
+| `ANALYTICS.UTM_DATA_QUALITY_DAILY` | Daily adoption, capture, join, invalid-ID, rogue-tag, and freshness measures |
+
+Dimension models must be deterministic and re-runnable. Preserve `valid_from`, `valid_to`, `is_current`, source snapshot version, and ingestion timestamp where history matters. Reject one-to-many matches for `rpc_` and `rpl_` as data-quality failures.
+
+## 6. Conformed touch fields
+
+Every downstream touch model should expose:
+
+- source event/session identifier and timestamp;
+- `source_system` (`ga4`, `posthog`, or another approved producer);
+- raw landing URL and all raw observed UTM/`rp_*` values;
+- `observed_campaign_id` and `observed_link_id` exactly as captured;
+- `resolved_campaign_id`, `resolved_initiative_id`, and `resolved_link_id` after registry resolution;
+- `resolution_method`: `observed_utm_id`, `registry_campaign_mapping`, `legacy_crosswalk`, or `unmatched`;
+- `governance_status`: `governed_v2`, `legacy_mapped`, `legacy_unmapped`, `unregistered`, or `invalid_id`;
+- source/medium taxonomy status and registry snapshot version used;
+- business metrics appropriate to the grain (sessions, events, signups, pipeline, revenue), without mixing grains.
+
+Resolution order: valid observed `utm_id` → campaign dimension → initiative relationship. Use the historical crosswalk only for records without a valid V2 identity. Never use `utm_campaign LIKE '%...%'` as the default attribution join.
+
+## 7. Mode contract
+
+Mode reports should query certified Snowflake views, not the live application API or PostgreSQL. Publish at least:
+
+1. campaign performance keyed by `resolved_campaign_id`;
+2. initiative rollup keyed by `resolved_initiative_id`;
+3. cross-source GA4/PostHog capture and metric reconciliation;
+4. UTM operating-quality scorecard;
+5. exceptions for unknown `rpc_`, missing `utm_id`, invalid taxonomy, and unobserved issued links.
+
+Every report must display data freshness, source systems, governance-status filters, and metric grain. Human-readable campaign and initiative names are labels fetched from the dimensions.
+
+## 8. Quality checks and operating thresholds
+
+| Check | Pilot threshold | Failure owner |
 |---|---|---|
-| `warehouse_snapshots` | Versioned JSON snapshots of campaigns/links/initiatives, written idempotently via the outbox on create/update | Build conformed campaign/link dimensions; reporting never joins live APIs |
-| `external_campaign_mappings` | `campaign_id` ↔ external system IDs (HubSpot campaignGuid, etc.), with sync state | Join registry campaigns to HubSpot attribution objects; one non-null external ID maps to at most one campaign (DB-enforced) |
-| `campaigns` | `id` (= `utm_id`), `utm_campaign` slug, `initiative_id`, lifecycle, ownership | The campaign→initiative mapping for rollups |
-| `links` | Full per-link record incl. raw governed values | Per-placement dimensions; repair joins |
+| Registry snapshot freshness in Snowflake | Within agreed SLA; recommended ≤4 hours for pilot | Data platform |
+| Valid observed `rpc_` joins | ≥98%; never one-to-many | Analytics + MOPS |
+| GA4 governed-landing `utm_id` capture | ≥98% | Analytics implementation owner |
+| PostHog governed-landing `utm_id` capture | ≥98% | Analytics implementation owner |
+| Unknown `rpc_` identifiers | 0 expected; every occurrence triaged | MOPS |
+| Exact duplicate issuance | 0 non-overrides | MOPS |
+| Campaign duplicate overrides | 100% have admin, reason, and candidate IDs | MOPS |
+| Cross-source volume variance | Threshold defined per comparable grain before pilot | Analytics |
 
-## 5. Raw retention guarantee
+The scorecard denominator must be explicit. For capture completeness, use known governed landing URLs/IDs rather than all site traffic.
 
-The `links` table stores, verbatim and permanently:
+## 9. Recovery narratives
 
-- `destination_raw` (exactly what the user typed) and `destination_normalized`
-- `final_url` exactly as issued
-- Raw `utm_id`, `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` values as emitted
-- `rp_initiative_id_param` and `rp_link_id_param` — the `rp_*` values *actually emitted* (null when policy-disabled at issuance)
-- `config_version`, revision number, preset, fingerprints
+- If a GA4 custom dimension or PostHog custom property is missed, recover initiative membership from captured `utm_id` and the campaign dimension. If `utm_id` itself was not captured, use raw landing URL only as repair evidence and label the result accordingly.
+- If HubSpot sync lags, reporting by `utm_id` remains available. Backfill the external mapping after retry/reconciliation.
+- If PostgreSQL snapshots exist but Snowflake is stale, replay the delivery job idempotently; do not mark the application outbox as evidence of Snowflake delivery.
+- If the registry is restored, existing links keep working. Reconcile observed IDs, snapshots, and audit history before resuming issuance.
+- For pre-V2 traffic, apply the confidence-scored process in [historical-migration.md](historical-migration.md).
 
-Retiring a link, revising it (prior state snapshotted in `link_revisions`), disabling taxonomy values, or changing policy never destroys these values. Any historical report can therefore be rebuilt or repaired from observed raw params + the registry.
+## 10. Example Snowflake SQL
 
-## 6. Failure-recovery narratives
-
-- **Custom dimension never registered / tag broken for a month:** initiative rollups are unaffected in substance — run the recovery join (§7, query C). Only touches missing `utm_id` entirely are unrecoverable.
-- **HubSpot sync backlog or dead-letters:** campaign attribution in HubSpot lags, but registry reporting by `utm_id` is complete. After mappings sync (retry/reconcile), HubSpot joins backfill via `external_campaign_mappings` — the GUID is a mapping, not the identity.
-- **Warehouse snapshot missing for some links:** reconciliation flags `missing_warehouse_snapshot`; an outbox retry backfills it. Raw GA4/warehouse touches remain joinable to `links`/`campaigns` directly in the meantime.
-- **Registry DB restored to an earlier point:** issued URLs in the wild still carry their full identifiers; re-ingesting observed touches plus warehouse snapshots reconstructs the affected window. Run reconciliation to enumerate gaps.
-
-## 7. Sample SQL
-
-Table names below refer to warehouse-conformed copies of the registry tables (via `warehouse_snapshots`) plus an `observed_touches` table of raw captured params (GA4 export or equivalent: one row per session/touch with `utm_id`, `utm_campaign`, `rp_initiative_id`, `rp_link_id`, `sessions`, `conversions`).
-
-**A. Campaign performance by exact `utm_id`:**
+Campaign and initiative performance use exact ID joins:
 
 ```sql
-SELECT
-  c.id            AS campaign_id,
-  c.name          AS campaign_name,   -- label only, never a join key
-  SUM(t.sessions)    AS sessions,
-  SUM(t.conversions) AS conversions
-FROM observed_touches t
-JOIN campaigns c ON c.id = t.utm_id   -- exact equality on the canonical ID
-WHERE t.utm_id = 'rpc_01J9V5DQ3E8Z4Y2W1XKQGT7MNB'
-GROUP BY c.id, c.name;
+select
+  c.campaign_id,
+  c.campaign_name,
+  c.initiative_id,
+  i.initiative_name,
+  count_if(t.source_system = 'ga4') as ga4_touches,
+  count_if(t.source_system = 'posthog') as posthog_touches,
+  sum(t.pipeline_amount) as pipeline_amount
+from analytics.fct_marketing_touch t
+join analytics.dim_gtm_campaign c
+  on c.campaign_id = t.resolved_campaign_id
+left join analytics.dim_gtm_initiative i
+  on i.initiative_id = c.initiative_id
+where t.governance_status = 'governed_v2'
+group by 1, 2, 3, 4;
 ```
 
-**B. Launch rollup via campaign→initiative mapping:**
+Unknown or malformed governed identifiers become an operating queue:
 
 ```sql
-SELECT
-  i.id   AS initiative_id,
-  i.name AS initiative_name,
-  SUM(t.sessions)    AS sessions,
-  SUM(t.conversions) AS conversions
-FROM observed_touches t
-JOIN campaigns   c ON c.id = t.utm_id
-JOIN initiatives i ON i.id = c.initiative_id
-WHERE i.id = 'rpi_01J9V5AHXW3T9RQZKM2C4B8DFE'
-GROUP BY i.id, i.name;
+select
+  source_system,
+  observed_campaign_id,
+  count(*) as touch_count,
+  min(touch_at) as first_seen,
+  max(touch_at) as last_seen
+from analytics.fct_marketing_touch
+where governance_status in ('unregistered', 'invalid_id')
+group by 1, 2
+order by touch_count desc;
 ```
 
-**C. Repair query for missed `rp_initiative_id` captures:**
+## 11. Anti-patterns
 
-```sql
-SELECT
-  t.*,
-  COALESCE(t.rp_initiative_id, c.initiative_id) AS initiative_id_repaired,
-  CASE
-    WHEN t.rp_initiative_id IS NOT NULL THEN 'rp_initiative_id'
-    WHEN c.initiative_id    IS NOT NULL THEN 'utm_id_registry_mapping'
-    ELSE 'unmatched'
-  END AS recovered_from
-FROM observed_touches t
-LEFT JOIN campaigns c ON c.id = t.utm_id;
-```
-
-**D. Reconciliation: registry vs. observed touches** (issued links never seen, and observed campaign IDs unknown to the registry):
-
-```sql
--- Issued links with zero observed traffic in the window
-SELECT l.id, l.final_url, l.issued_at
-FROM links l
-LEFT JOIN observed_touches t ON t.rp_link_id = l.id
-WHERE l.status = 'issued'
-  AND l.issued_at < CURRENT_DATE - INTERVAL '7 days'
-  AND t.rp_link_id IS NULL;
-
--- Observed utm_id values that don't exist in the registry (rogue/hand-built tags)
-SELECT t.utm_id, COUNT(*) AS touches
-FROM observed_touches t
-LEFT JOIN campaigns c ON c.id = t.utm_id
-WHERE t.utm_id IS NOT NULL
-  AND c.id IS NULL
-GROUP BY t.utm_id
-ORDER BY touches DESC;
-```
-
-## 8. Anti-patterns
-
-- **Never build reporting on `utm_campaign` substring matching** (`LIKE '%launch%'`, "contains" filters). Names drift, get reused, and collide; only IDs are contractual. Name filters are for interactive exploration only.
-- Don't join on HubSpot GUIDs as if they were canonical — map back to `rpc_` via `external_campaign_mappings`.
-- Don't infer volume or ordering across entities from ULIDs beyond creation-time sorting.
-- Don't query live application APIs from warehouse jobs — use `warehouse_snapshots`.
+- Do not join on campaign names, substrings, HubSpot GUIDs, or platform labels when a stable Runpod ID is available.
+- Do not overwrite raw observed parameters with normalized values.
+- Do not claim PostHog/GA4 capture because the URL was generated correctly; inspect the emitted event and downstream row.
+- Do not claim Snowflake delivery because a PostgreSQL snapshot or outbox success exists.
+- Do not combine GA4 sessions, PostHog events, and pipeline records without declaring and reconciling grain.
+- Do not query live application APIs from Mode.

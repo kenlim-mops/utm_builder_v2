@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { AuthError } from "@/services/auth";
+import { CampaignDuplicateError } from "@/services/campaigns";
 import { DuplicateError, IssueError } from "@/services/links";
 
 function allowedOrigin(req: Request): string | null {
@@ -70,6 +71,13 @@ export async function handlePublicApi(
         error: { code: "exact_duplicate", message: error.message },
         existingLinkId: error.existingLinkId,
         existingUrl: error.existingUrl,
+        requestId,
+      }, { status: 409 }, requestId);
+    }
+    if (error instanceof CampaignDuplicateError) {
+      return apiJson(req, {
+        error: { code: "campaign_duplicate", message: error.message },
+        candidates: error.candidates,
         requestId,
       }, { status: 409 }, requestId);
     }

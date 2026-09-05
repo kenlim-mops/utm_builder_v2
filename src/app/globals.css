@@ -497,6 +497,19 @@ th.nowrap {
   border-color: rgba(11, 83, 148, 0.3);
 }
 
+.duplicate-warning {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(138, 91, 0, 0.3);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.duplicate-warning > p:first-child {
+  margin-top: 0;
+}
+
 /* findings */
 .findings {
   list-style: none;

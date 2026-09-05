@@ -71,6 +71,8 @@ curl -X POST https://utm.runpod.io/api/v1/links \
 
 An exact duplicate returns `409 exact_duplicate` with the existing link ID and URL. Callers should reuse it. Validation failures return `422` with field findings. Do not construct a URL from preview output and bypass issuance: only an issued response proves the registry transaction committed.
 
+Campaign creation performs a conservative semantic duplicate check across active/non-archived names and slugs. A spacing/punctuation variant returns `409 campaign_duplicate` with `candidates`; reuse the matching campaign. An administrator may retry with `{"duplicateAction":"override","duplicateReason":"..."}` only when a genuinely separate reporting campaign is required. The override and candidate IDs are audited.
+
 ## Browser-extension CORS
 
 Only `chrome-extension://<allowlisted-id>` origins receive CORS headers. Production requires `EXTENSION_IDS`; arbitrary websites cannot call the API cross-origin. Direct server clients are unaffected by browser CORS and still require bearer authorization.

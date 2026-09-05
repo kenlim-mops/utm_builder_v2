@@ -15,6 +15,7 @@ import {
   errText,
   qs,
   type Campaign,
+  type CampaignDuplicateCandidate,
   type Finding,
   type Initiative,
   type IssueResult,
@@ -55,6 +56,8 @@ export default function BuilderPage() {
   const [newCampaignSlug, setNewCampaignSlug] = useState("");
   const [newCampaignErr, setNewCampaignErr] = useState("");
   const [creatingCampaign, setCreatingCampaign] = useState(false);
+  const [campaignDuplicates, setCampaignDuplicates] = useState<CampaignDuplicateCandidate[]>([]);
+  const [campaignDuplicateReason, setCampaignDuplicateReason] = useState("");
 
   // Preview state
   const [preview, setPreview] = useState<PreviewResult | null>(null);
@@ -185,13 +188,14 @@ export default function BuilderPage() {
     }
   }, [newInitiativeName]);
 
-  const createCampaign = useCallback(async () => {
+  const createCampaign = useCallback(async (withOverride = false) => {
     if (!newCampaignName.trim()) {
       setNewCampaignErr("Campaign name is required.");
       return;
     }
     setCreatingCampaign(true);
     setNewCampaignErr("");
+    if (!withOverride) setCampaignDuplicates([]);
     try {
       const d = await api<{ campaign: Campaign }>("/api/campaigns", {
         method: "POST",
@@ -199,19 +203,27 @@ export default function BuilderPage() {
           name: newCampaignName.trim(),
           utmCampaign: newCampaignSlug.trim() || undefined,
           initiativeId: initiativeId || undefined,
+          ...(withOverride
+            ? { duplicateAction: "override", duplicateReason: campaignDuplicateReason }
+            : {}),
         }),
       });
       await loadCampaigns();
       setCampaignId(d.campaign.id);
       setNewCampaignName("");
       setNewCampaignSlug("");
+      setCampaignDuplicates([]);
+      setCampaignDuplicateReason("");
       setShowNewCampaign(false);
     } catch (err) {
       setNewCampaignErr(errText(err));
+      if (err instanceof ApiError && err.code === "campaign_duplicate") {
+        setCampaignDuplicates(err.candidates ?? []);
+      }
     } finally {
       setCreatingCampaign(false);
     }
-  }, [newCampaignName, newCampaignSlug, initiativeId, loadCampaigns]);
+  }, [newCampaignName, newCampaignSlug, initiativeId, campaignDuplicateReason, loadCampaigns]);
 
   const submit = useCallback(
     async (status: "draft" | "issued", withOverride = false) => {
@@ -394,6 +406,41 @@ export default function BuilderPage() {
                   {creatingCampaign ? "Creating…" : "Create campaign"}
                 </button>
                 <Msg kind="error">{newCampaignErr}</Msg>
+                {campaignDuplicates.length ? (
+                  <div className="duplicate-warning">
+                    <p><strong>Possible existing campaign</strong></p>
+                    <ul>
+                      {campaignDuplicates.map((candidate) => (
+                        <li key={candidate.id}>
+                          {candidate.name} ({candidate.utmCampaign}) — {candidate.id}
+                        </li>
+                      ))}
+                    </ul>
+                    {isAdmin ? (
+                      <>
+                        <div className="field">
+                          <label htmlFor="campaign-duplicate-reason">Why is a separate campaign required?</label>
+                          <input
+                            id="campaign-duplicate-reason"
+                            type="text"
+                            value={campaignDuplicateReason}
+                            onChange={(e) => setCampaignDuplicateReason(e.target.value)}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-secondary btn-small"
+                          disabled={creatingCampaign || !campaignDuplicateReason.trim()}
+                          onClick={() => void createCampaign(true)}
+                        >
+                          Create separately with audited override
+                        </button>
+                      </>
+                    ) : (
+                      <p className="small">Reuse the existing campaign or ask an administrator to approve an exception.</p>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

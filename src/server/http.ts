@@ -3,6 +3,7 @@
  */
 import { NextResponse } from "next/server";
 import { AuthError } from "@/services/auth";
+import { CampaignDuplicateError } from "@/services/campaigns";
 import { DuplicateError, IssueError } from "@/services/links";
 
 export function json(data: unknown, init?: ResponseInit) {
@@ -21,6 +22,12 @@ export function errorResponse(err: unknown): NextResponse {
         existingLinkId: err.existingLinkId,
         existingUrl: err.existingUrl,
       },
+      { status: 409 },
+    );
+  }
+  if (err instanceof CampaignDuplicateError) {
+    return NextResponse.json(
+      { error: err.message, code: "campaign_duplicate", candidates: err.candidates },
       { status: 409 },
     );
   }

@@ -51,6 +51,14 @@ export interface Campaign {
   updatedAt: string;
 }
 
+export interface CampaignDuplicateCandidate {
+  id: string;
+  name: string;
+  utmCampaign: string;
+  initiativeId: string | null;
+  lifecycle: "planned" | "active" | "completed" | "archived";
+}
+
 export interface CampaignMapping {
   id: string;
   campaignId: string;
@@ -293,6 +301,7 @@ export class ApiError extends Error {
   findings?: Finding[];
   existingLinkId?: string;
   existingUrl?: string;
+  candidates?: CampaignDuplicateCandidate[];
 
   constructor(status: number, body: Record<string, unknown>) {
     super(
@@ -306,6 +315,7 @@ export class ApiError extends Error {
     if (Array.isArray(body.findings)) this.findings = body.findings as Finding[];
     if (typeof body.existingLinkId === "string") this.existingLinkId = body.existingLinkId;
     if (typeof body.existingUrl === "string") this.existingUrl = body.existingUrl;
+    if (Array.isArray(body.candidates)) this.candidates = body.candidates as CampaignDuplicateCandidate[];
   }
 }
 

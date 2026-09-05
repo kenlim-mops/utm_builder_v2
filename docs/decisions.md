@@ -264,6 +264,55 @@ Format per entry: Status / Context / Options / Decision / Justification / Tradeo
 - **Tradeoffs:** Provisioning must keep work emails aligned; email lookup requires `users:read.email`; mapping drift can temporarily block a legitimate user, failing closed.
 - **Revisit trigger:** Runpod SSO exposes a supported Slack-to-employee subject mapping or SCIM-backed identity service.
 
+## 27. Pilot the reporting spine before activating every client
+
+- **Status:** Accepted
+- **Context:** The repository contains a broad set of useful interfaces, but organizational adoption, security approval, analytics capture, and operations mature at different speeds.
+- **Options:** (a) launch every capability together; (b) remove later-stage capabilities; (c) preserve the shared architecture and activate capabilities in evidence-based phases.
+- **Decision:** Call the product pilot-ready until operating gates are met. Pilot the web service, registry, IDs, bulk flow, taxonomy, GA4/PostHog capture, Snowflake delivery, and Mode QA first. Enable Slack, extension, API/MCP, reconciliation, and templates independently as approvals and adoption evidence justify them.
+- **Justification:** This proves the reporting outcome without turning optional clients into launch blockers or discarding already isolated capabilities.
+- **Tradeoffs:** Some users initially use a less embedded entry point; rollout state must be documented clearly.
+- **Revisit trigger:** Two pilot review cycles meet the scorecard in `pilot-governance.md`.
+
+## 28. Application snapshots are a staging contract, not Snowflake delivery
+
+- **Status:** Accepted
+- **Context:** The outbox currently writes `warehouse_snapshots` into application PostgreSQL. Calling that “warehouse sync” can lead analysts to assume Snowflake and Mode are already covered.
+- **Options:** (a) treat Postgres snapshots as final reporting storage; (b) query the live app from Mode; (c) define a separately owned, monitored delivery boundary into Snowflake.
+- **Decision:** Keep PostgreSQL snapshots as an idempotent staging boundary. Require an approved delivery job/connector, raw Snowflake landing table, conformed models, freshness checks, and Mode-facing views before reporting is production-ready.
+- **Justification:** It separates application durability from analytics-pipeline delivery and makes the missing operational owner visible.
+- **Tradeoffs:** Production reporting requires work outside this repository.
+- **Revisit trigger:** Runpod chooses and implements the Snowflake ingestion path.
+
+## 29. Explicit PostHog capture and cross-system verification
+
+- **Status:** Accepted
+- **Context:** A correctly generated URL can still lose parameters in redirects, routing, tag configuration, SDK persistence, or downstream exports.
+- **Options:** (a) infer capture from the URL; (b) rely on undocumented SDK defaults; (c) explicitly parse/store governed fields and verify each stage.
+- **Decision:** Require landing-event, session/current-touch, first-touch, and raw-URL semantics to be implemented explicitly for PostHog, with equivalent GA4 evidence and Snowflake join tests.
+- **Justification:** Attribution durability depends on observed data, not generator output alone.
+- **Tradeoffs:** Marketing-site and data-pipeline owners must implement and maintain the contract.
+- **Revisit trigger:** SDK or analytics architecture changes, or capture completeness falls below the pilot threshold.
+
+## 30. Conservative campaign duplicate detection with audited escape hatch
+
+- **Status:** Accepted
+- **Context:** Link fingerprints prevent duplicate URLs, but small campaign-name variations could still mint multiple `rpc_` IDs for one reporting concept.
+- **Options:** (a) rely only on unique exact slugs; (b) fuzzy-match and auto-merge; (c) conservatively block deterministic punctuation/spacing variants and allow justified administrator overrides.
+- **Decision:** Compare active/non-archived campaign names and slugs after case/punctuation normalization. Return candidates before creation. Only administrators may override, with a reason stored in `campaign.duplicate_override`.
+- **Justification:** It closes a common registry-quality gap without risking opaque fuzzy auto-merges.
+- **Tradeoffs:** More sophisticated semantic similarities remain a governance/search problem; legitimate variants require an admin exception.
+- **Revisit trigger:** Pilot duplicate reviews show material false positives or missed patterns.
+
+## 31. Production Slack workspace authorization fails closed
+
+- **Status:** Accepted
+- **Context:** Signed Slack requests authenticate a Slack app installation, but an empty tenant allowlist in production would otherwise accept any workspace able to reach the endpoints.
+- **Decision:** Deny all production Slack identities unless `SLACK_ALLOWED_ENTERPRISE_IDS` or `SLACK_ALLOWED_TEAM_IDS` contains a match. Preserve unconfigured behavior only in local/test environments.
+- **Justification:** A missed environment variable cannot silently widen the authorized organization.
+- **Tradeoffs:** Misconfiguration blocks legitimate Slack use until corrected; web/API recovery paths remain available.
+- **Revisit trigger:** Slack identity is enforced by an approved organization-wide gateway with equivalent or stronger controls.
+
 ---
 
 ## Open decisions
@@ -284,3 +333,7 @@ Not yet decided; each blocks or shapes production rollout:
 12. **GTM catalog stewardship** — owner and review SLA for catalog records, restricted-data access, source proposals, and stale verification.
 13. **Notion connector authority** — which Notion data sources/fields may progress from review-first to auto-apply, and who signs off.
 14. **Bulk-template certification cadence** — owner and recertification frequency for each platform/account workflow.
+15. **Snowflake snapshot delivery** — approved job/connector, raw table, owner, freshness SLA, schema-change policy, and replay/backfill runbook.
+16. **GA4/PostHog capture ownership** — implementation owner, exact landing/session/first-touch semantics, consent behavior, and validation evidence.
+17. **Mode certification** — owners and definitions for campaign, initiative, attribution, and operating-quality reports.
+18. **V2 effective date and legacy posture** — pilot start date, historical crosswalk review owner, confidence thresholds, and treatment of active legacy links.

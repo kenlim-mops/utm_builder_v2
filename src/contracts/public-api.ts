@@ -18,6 +18,8 @@ export const campaignInputSchema = z.object({
   startDate: z.string().datetime().or(z.string().date()).nullish(),
   endDate: z.string().datetime().or(z.string().date()).nullish(),
   description: z.string().trim().max(2000).nullish(),
+  duplicateAction: z.enum(["override"]).nullish(),
+  duplicateReason: z.string().trim().max(1000).nullish(),
 });
 
 export const linkRequestSchema = z.object({

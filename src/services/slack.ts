@@ -40,7 +40,9 @@ export function verifySlackRequest(input: {
 export function slackIdentityAllowed(identity: SlackRequestIdentity) {
   const teams = configuredIds(process.env.SLACK_ALLOWED_TEAM_IDS);
   const enterprises = configuredIds(process.env.SLACK_ALLOWED_ENTERPRISE_IDS);
-  if (!teams.size && !enterprises.size) return true;
+  // Local/test environments stay easy to exercise. Production fails closed so
+  // a missed deployment variable cannot authorize an arbitrary workspace.
+  if (!teams.size && !enterprises.size) return process.env.NODE_ENV !== "production";
   return Boolean(
     (identity.teamId && teams.has(identity.teamId)) ||
       (identity.enterpriseId && enterprises.has(identity.enterpriseId)),

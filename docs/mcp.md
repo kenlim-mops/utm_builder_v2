@@ -37,7 +37,7 @@ Use the secret-management syntax supported by the chosen client; do not paste a 
 | `utm_list_reference_data` | Lists initiatives, campaigns, presets, sources, and mediums |
 | `utm_search_links` | Searches the canonical registry; useful before creating a possible duplicate |
 | `utm_create_initiative` | Creates and audits an initiative; requires `confirmed=true` |
-| `utm_create_campaign` | Creates and audits a campaign and canonical `rpc_` ID; requires `confirmed=true` |
+| `utm_create_campaign` | Creates and audits a campaign and canonical `rpc_` ID; semantic duplicates return reuse candidates; administrator override requires `duplicateAction=override`, a reason, and `confirmed=true` |
 | `utm_preview_link` | Normalizes, validates, and checks duplicates; never writes |
 | `utm_issue_link` | Issues one link, mints `rpl_`, and logs it; requires confirmation and an idempotency key |
 | `utm_issue_batch` | Issues 1–200 rows with row-level isolation; requires confirmation |

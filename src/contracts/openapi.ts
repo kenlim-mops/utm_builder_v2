@@ -11,6 +11,22 @@ export const openApiDocument = {
       bearerAuth: { type: "http", scheme: "bearer" },
     },
     schemas: {
+      CampaignRequest: {
+        type: "object",
+        required: ["name"],
+        properties: {
+          name: { type: "string", maxLength: 160 },
+          utmCampaign: { type: "string", maxLength: 100 },
+          initiativeId: { type: ["string", "null"] },
+          product: { type: ["string", "null"] },
+          campaignType: { type: ["string", "null"] },
+          startDate: { type: ["string", "null"] },
+          endDate: { type: ["string", "null"] },
+          description: { type: ["string", "null"] },
+          duplicateAction: { type: ["string", "null"], enum: ["override", null] },
+          duplicateReason: { type: ["string", "null"], maxLength: 1000 },
+        },
+      },
       LinkRequest: {
         type: "object",
         required: ["destination", "campaignId", "utmSource", "utmMedium"],
@@ -32,7 +48,10 @@ export const openApiDocument = {
     },
     "/campaigns": {
       get: { summary: "List campaigns" },
-      post: { summary: "Create a campaign" },
+      post: {
+        summary: "Create a campaign; semantic duplicates return candidates for reuse",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/CampaignRequest" } } } },
+      },
     },
     "/taxonomy": { get: { summary: "List governed taxonomy" } },
     "/presets": { get: { summary: "List platform presets" } },

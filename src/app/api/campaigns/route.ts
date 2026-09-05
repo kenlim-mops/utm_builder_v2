@@ -1,3 +1,4 @@
+import { campaignInputSchema } from "@/contracts/public-api";
 import { getDb } from "@/db/client";
 import { requireUser } from "@/services/auth";
 import { createCampaign, listCampaigns } from "@/services/campaigns";
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
   return handle(async () => {
     const actor = await requireUser();
     const db = await getDb();
-    const input = await req.json();
+    const input = campaignInputSchema.parse(await req.json());
     const campaign = await createCampaign(db, actor, input);
     return json({ campaign }, { status: 201 });
   });

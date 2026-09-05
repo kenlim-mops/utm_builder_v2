@@ -38,7 +38,8 @@ There is no delete path in the application, deliberately.
 - Campaigns are created explicitly (`POST /api/campaigns`); the `rpc_` ID and the canonical `utm_campaign` slug are immutable after creation. Metadata (display name, owner, dates, lifecycle, product, description, initiative attachment) is editable via `PATCH /api/campaigns/{id}`.
 - Initiatives (`rpi_`) are the optional layer above campaigns; same immutability rule for the ID.
 - Lifecycle values: `planned`, `active`, `completed`, `archived`. Lifecycle is metadata — it does not currently block issuance; retire individual links or disable taxonomy values to stop usage.
-- `utm_campaign` slugs are globally unique (DB constraint), so a campaign name collision surfaces at creation time.
+- `utm_campaign` slugs are globally unique (DB constraint). Before insertion, the service also checks active/non-archived campaign names and slugs using a conservative semantic key that collapses case, punctuation, periods, underscores, spaces, and hyphens. Users receive candidates to reuse.
+- Only an administrator may bypass a semantic campaign duplicate warning. A non-empty reason is required and `campaign.duplicate_override` records the new campaign, actor, candidate IDs, and reason. Do not override merely to satisfy separate platform naming; one reporting campaign may have many links and external mappings.
 
 ## 3. External mappings (HubSpot)
 
@@ -112,7 +113,7 @@ Screen: /admin/integrations, backed by `GET/POST /api/admin/outbox` and `GET/POS
 **Reconciliation:** `POST /api/admin/reconcile` runs a full comparison and stores an `rpx_` run. It flags:
 
 - `hubspot_mapping_unsynced` — campaigns whose HubSpot mapping never reached `synced`
-- `missing_warehouse_snapshot` — issued links without a warehouse snapshot (backfillable via outbox retry)
+- `missing_warehouse_snapshot` — issued links without the application PostgreSQL staging snapshot (backfillable via outbox retry). This check does not prove downstream Snowflake delivery.
 - `outbox_dead_letter` — events that failed permanently, with the final error
 
 Investigators can read runs; only admins trigger them.
@@ -134,13 +135,14 @@ Filter recipes:
 | Question | Query |
 |---|---|
 | Who overrode duplicates? | `?action=link.duplicate_override` — each event carries the actor, reason, new link ID, and the overridden link in `context.existingLinkId` |
+| Who created a duplicate campaign? | `?action=campaign.duplicate_override` — event carries the administrator, reason, new campaign, and candidate campaign IDs |
 | All changes to a link | `?entityType=link&entityId=rpl_...` — issuance, revisions, retirement, overrides; revisions also carry the field-level diff |
 | Role changes | `?action=user.role_changed` — before/after role, actor, reason |
 | Everything one person did | `?actor=<email or rpu_ id>` plus `after`/`before` date bounds |
 | All config changes in a window | `?entityType=setting&after=...&before=...` (also `taxonomy_source`, `taxonomy_medium`, `platform_preset`, `destination_policy`) |
 | One bulk batch end-to-end | `?q=rpb_...` — batch events plus per-row issuance via correlation IDs `rpb_...:<rowIndex>` |
 
-Useful action names: `link.issued`, `link.draft_created`, `link.revised`, `link.retired`, `link.duplicate_override`, `link.duplicate_reused`, `batch.created`, `batch.completed`, `campaign.created`, `campaign.updated`, `initiative.created`, `initiative.updated`, `taxonomy.source.created/updated`, `taxonomy.medium.created/updated`, `preset.created/updated`, `destination_policy.created/updated`, `setting.updated`, `user.created/updated/role_changed`, `outbox.retry_requested`, `reconciliation.run`, `config.exported`, `registry.exported`.
+Useful action names: `link.issued`, `link.draft_created`, `link.revised`, `link.retired`, `link.duplicate_override`, `link.duplicate_reused`, `batch.created`, `batch.completed`, `campaign.created`, `campaign.duplicate_override`, `campaign.updated`, `initiative.created`, `initiative.updated`, `taxonomy.source.created/updated`, `taxonomy.medium.created/updated`, `preset.created/updated`, `destination_policy.created/updated`, `setting.updated`, `user.created/updated/role_changed`, `outbox.retry_requested`, `reconciliation.run`, `config.exported`, `registry.exported`.
 
 Slack actions use these same events rather than a parallel log. Their correlation IDs begin with `slack:`; the actor is the existing Builder user resolved from the signed Slack user. Review the batch ID for CSV requests. Slack request bodies, bot tokens, signing secrets, and uploaded CSV contents are not copied wholesale into audit events.
 

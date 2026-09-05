@@ -2,7 +2,7 @@
  * Reconciliation and reporting repairability.
  *
  * - reconcile(): compares registry records, external mappings, outbox state,
- *   and warehouse snapshots; stores a reconciliation run with discrepancies.
+ *   and PostgreSQL snapshot staging; stores a reconciliation run with discrepancies.
  * - reconstructInitiativeReport(): repairs a missed rp_initiative_id capture
  *   using only raw utm_id values plus the registry's campaign-to-initiative
  *   mapping — the documented recovery path.
@@ -42,7 +42,7 @@ export async function reconcile(db: Db, triggeredBy: string) {
     }
   }
 
-  // 2. Issued links without a warehouse snapshot (broken conformed-dimension join).
+  // 2. Issued links without an application snapshot (downstream delivery cannot proceed).
   const issuedLinks = await db.select().from(links).where(eq(links.status, "issued"));
   const snapshots = await db.select().from(warehouseSnapshots);
   const snapshotIds = new Set(snapshots.map((s) => `${s.entityType}:${s.entityId}`));
@@ -52,7 +52,7 @@ export async function reconcile(db: Db, triggeredBy: string) {
         kind: "missing_warehouse_snapshot",
         entityType: "link",
         entityId: link.id,
-        detail: "Issued link has no warehouse snapshot yet (backfillable via outbox retry).",
+        detail: "Issued link has no PostgreSQL staging snapshot yet (backfillable via outbox retry).",
       });
     }
   }

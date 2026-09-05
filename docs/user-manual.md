@@ -159,6 +159,8 @@ Campaign creation also checks semantically equivalent names/slugs after normaliz
 
 Override authorization defaults to the `admin` role (admin-configurable). In bulk batches, exact duplicates become `skipped_duplicate` rows rather than failing the batch.
 
+**Who can revise or retire:** the link's creator, the owning campaign's owner, or an administrator. Investigator accounts are read-only everywhere.
+
 **Revisions:** drafts are edited in place (still audited). Issued links get an immutable `rpr_` revision containing the prior snapshot, the field diff, your reason, and your identity. Revising **never** changes the link ID, `utm_id`, or any URL already placed in an external platform — the registry never auto-updates external platforms. If the revised URL matters, you must re-paste it wherever it is used.
 
 ## 10. Registry search and export

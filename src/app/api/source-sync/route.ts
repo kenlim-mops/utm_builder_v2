@@ -1,5 +1,6 @@
 import { getDb } from "@/db/client";
 import { json } from "@/server/http";
+import { safeEqual } from "@/core/tokens";
 import { syncDueSourceConnectors } from "@/services/source-sync";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,9 @@ async function run(req: Request) {
   const accepted = [process.env.SOURCE_SYNC_TOKEN, process.env.CRON_SECRET]
     .filter(Boolean)
     .map((token) => `Bearer ${token}`);
-  if (!auth || !accepted.includes(auth)) return json({ error: "Unauthorized" }, { status: 401 });
+  if (accepted.length === 0 || !auth || !accepted.some((candidate) => safeEqual(auth, candidate))) {
+    return json({ error: "Unauthorized" }, { status: 401 });
+  }
   return json({ result: await syncDueSourceConnectors(await getDb()) });
 }
 

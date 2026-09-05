@@ -8,7 +8,7 @@ import { newId, prefixedUlid } from "@/core/ids";
 import type { Db } from "@/db/client";
 import { batchRows, batches } from "@/db/schema";
 import { recordAudit } from "./audit";
-import type { SessionUser } from "./auth";
+import { assertCanWrite, type SessionUser } from "./auth";
 import { getConfig } from "./config";
 import { DuplicateError, IssueError, issueLink, type LinkRequest } from "./links";
 
@@ -36,6 +36,7 @@ export async function createBatch(
   rows: BatchRowInput[],
   source: "grid" | "paste" | "csv",
 ): Promise<BatchResult> {
+  assertCanWrite(actor);
   const config = await getConfig(db);
   if (rows.length === 0) throw new Error("Batch contains no rows.");
   if (rows.length > config.bulkLimit) {

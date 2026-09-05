@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { users } from "@/db/schema";
-import type { SessionUser } from "./auth";
+import { insecureDevFallbacksAllowed, type SessionUser } from "./auth";
 import { listPresets } from "./presets";
 import { listTaxonomy } from "./taxonomy";
 
@@ -40,9 +40,9 @@ export function verifySlackRequest(input: {
 export function slackIdentityAllowed(identity: SlackRequestIdentity) {
   const teams = configuredIds(process.env.SLACK_ALLOWED_TEAM_IDS);
   const enterprises = configuredIds(process.env.SLACK_ALLOWED_ENTERPRISE_IDS);
-  // Local/test environments stay easy to exercise. Production fails closed so
-  // a missed deployment variable cannot authorize an arbitrary workspace.
-  if (!teams.size && !enterprises.size) return process.env.NODE_ENV !== "production";
+  // Fails closed unless a dev/test environment explicitly opts in — an
+  // internet-exposed dev instance must not accept arbitrary workspaces.
+  if (!teams.size && !enterprises.size) return insecureDevFallbacksAllowed();
   return Boolean(
     (identity.teamId && teams.has(identity.teamId)) ||
       (identity.enterpriseId && enterprises.has(identity.enterpriseId)),
@@ -182,13 +182,22 @@ export function slackStateFileId(state: unknown): string | null {
 }
 
 export async function downloadSlackFile(fileId: string) {
-  const info = await slackApi<{ file?: { name?: string; mimetype?: string; size?: number; url_private_download?: string; url_private?: string } }>("files.info", { file: fileId });
+  const info = await slackApi<{ file?: { name?: string; mimetype?: string; size?: number; is_external?: boolean; url_private_download?: string; url_private?: string } }>("files.info", { file: fileId });
   const file = info.file;
   if (!file) throw new Error("Slack did not return the uploaded file.");
+  if (file.is_external) {
+    throw new Error("External/linked files are not supported — upload the CSV directly to Slack.");
+  }
   if ((file.size ?? 0) > 1_000_000) throw new Error("Bulk CSV must be 1 MB or smaller.");
   if (file.name && !file.name.toLowerCase().endsWith(".csv")) throw new Error("Bulk upload must be a CSV file.");
   const url = file.url_private_download ?? file.url_private;
   if (!url) throw new Error("Slack did not provide a download URL for the CSV.");
+  // The bot token is only ever sent to Slack-owned hosts; external-file URLs
+  // point at third parties and would leak the credential.
+  const host = new URL(url).hostname;
+  if (host !== "slack.com" && !host.endsWith(".slack.com")) {
+    throw new Error("Slack returned a non-Slack download host; refusing to send credentials.");
+  }
   const response = await fetch(url, { headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` } });
   if (!response.ok) throw new Error(`Could not download Slack file (${response.status}).`);
   return response.text();

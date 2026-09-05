@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { AuthError } from "@/services/auth";
+import { AuthError, insecureDevFallbacksAllowed } from "@/services/auth";
 import { CampaignDuplicateError } from "@/services/campaigns";
 import { DuplicateError, IssueError } from "@/services/links";
+import { RateLimitError } from "@/server/rate-limit";
 
 function allowedOrigin(req: Request): string | null {
   const origin = req.headers.get("origin");
@@ -14,8 +15,10 @@ function allowedOrigin(req: Request): string | null {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  if (process.env.NODE_ENV === "production" && configured.length === 0) return null;
-  return configured.length === 0 || configured.includes(match[1]) ? origin : null;
+  // With no allowlist configured, CORS for extensions is granted only when a
+  // dev/test environment explicitly opts in — never by default.
+  if (configured.length === 0) return insecureDevFallbacksAllowed() ? origin : null;
+  return configured.includes(match[1]) ? origin : null;
 }
 
 function decorate(req: Request, response: NextResponse, requestId: string): NextResponse {
@@ -95,7 +98,16 @@ export async function handlePublicApi(
         requestId,
       }, { status: 400 }, requestId);
     }
-    const message = error instanceof Error ? error.message : "Internal error";
+    if (error instanceof RateLimitError) {
+      return apiJson(req, {
+        error: { code: "rate_limited", message: error.message },
+        requestId,
+      }, { status: 429 }, requestId);
+    }
+    // Pass through messages only from plain service Errors; anything else
+    // (driver/library subclasses) is internal.
+    const isServiceError = error instanceof Error && error.constructor === Error;
+    const message = isServiceError ? (error as Error).message : "Internal error";
     const status = /not found/i.test(message)
       ? 404
       : /different request|processing/i.test(message)
@@ -104,7 +116,14 @@ export async function handlePublicApi(
           ? 400
           : 500;
     if (status === 500) {
-      console.error(JSON.stringify({ event: "public_api.error", requestId, message }));
+      console.error(
+        JSON.stringify({
+          event: "public_api.error",
+          requestId,
+          name: error instanceof Error ? error.name : typeof error,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
     return apiJson(req, {
       error: {

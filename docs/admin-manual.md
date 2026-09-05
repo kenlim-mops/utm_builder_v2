@@ -94,7 +94,7 @@ Change via `POST /api/admin/settings` with `key: "public_param_policy"`. Other s
 |---|---|
 | `user` | Create initiatives/campaigns/links/batches, revise/retire links, search/export the registry |
 | `admin` | Everything, plus: all /admin configuration, user/role management, duplicate override (by default), outbox retry, reconciliation, config export |
-| `investigator` | Read-only access to audit events, outbox/integration state, settings, reconciliation runs. No mutations. |
+| `investigator` | Read-only access to audit events, outbox/integration state, settings, reconciliation runs. No mutations — enforced server-side in the shared services, so every client (web, API, Slack, MCP, extension) inherits the block, and investigator-minted API tokens are restricted to read-only scopes. |
 
 Manage users via `POST /api/admin/users` (email-keyed upsert: name, role, active). Deactivating (`active: false`) blocks sign-in without deleting history. Role changes are audited with the distinct action `user.role_changed`.
 

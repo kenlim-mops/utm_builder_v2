@@ -171,7 +171,7 @@ Format per entry: Status / Context / Options / Decision / Justification / Tradeo
 - **Options:** (a) block on SSO; (b) build a full local auth system (passwords/sessions); (c) provider abstraction with a dev provider now and an SSO seam.
 - **Decision:** `getSession()` in `src/services/auth.ts` dispatches on `AUTH_PROVIDER`. The `dev` provider selects a seeded identity via cookie and refuses to run in production; the `sso` provider is a stub with a documented integration contract ([deployment-vercel.md](deployment-vercel.md) §4). Roles always come from the `users` table, server-side.
 - **Justification:** A homegrown password system would be discarded work and a liability. The abstraction keeps every route's enforcement (`requireUser`/`requireRole`) final regardless of provider.
-- **Tradeoffs:** Production deployment is hard-blocked on SSO implementation; the `ALLOW_DEV_AUTH` escape hatch exists for staging and must be governed.
+- **Tradeoffs:** Production deployment is hard-blocked on SSO implementation; the former `ALLOW_DEV_AUTH` escape hatch was removed after security review (2026-09-04) — the dev provider now unconditionally refuses production, and staging must use the SSO provider or a non-production build.
 - **Revisit trigger:** SSO provider approval (Open decisions) → implement `ssoProvider()` and delete the escape hatch from runbooks.
 
 ## 18. Browser side panel as the primary one-off adoption surface

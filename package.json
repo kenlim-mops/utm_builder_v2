@@ -2,7 +2,7 @@
   "name": "utm-builder-registry",
   "version": "2.0.0",
   "private": true,
-  "description": "Runpod UTM Builder & Registry — governed campaign links, one authoritative registry",
+  "description": "Runpod UTM Builder & Registry \u2014 governed campaign links, one authoritative registry",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -28,9 +28,6 @@
     "ulidx": "^2.4.1",
     "zod": "^3.24.1"
   },
-  "overrides": {
-    "postcss": "8.5.26"
-  },
   "devDependencies": {
     "@types/node": "^22.10.7",
     "@types/pg": "^8.11.10",
@@ -40,5 +37,8 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "postcss": "^8.5.6"
   }
 }

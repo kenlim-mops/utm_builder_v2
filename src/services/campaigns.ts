@@ -10,7 +10,7 @@ import type { Db } from "@/db/client";
 import { campaigns, externalCampaignMappings, initiatives } from "@/db/schema";
 import { prefixedUlid } from "@/core/ids";
 import { recordAudit } from "./audit";
-import type { SessionUser } from "./auth";
+import { assertCanManage, assertCanWrite, type SessionUser } from "./auth";
 import { enqueueOutboxEvent } from "./outbox";
 
 export interface CampaignInput {
@@ -68,6 +68,7 @@ export async function findCampaignDuplicates(db: Db, input: Pick<CampaignInput, 
 }
 
 export async function createCampaign(db: Db, actor: SessionUser, input: CampaignInput) {
+  assertCanWrite(actor);
   const name = input.name?.trim();
   if (!name) throw new Error("Campaign name is required.");
   const utmCampaign = canonicalUtmValue(input.utmCampaign?.trim() || name);
@@ -167,6 +168,7 @@ export async function updateCampaign(
     const existing = await tx.select().from(campaigns).where(eq(campaigns.id, id));
     const before = existing[0];
     if (!before) throw new Error("Campaign not found.");
+    assertCanManage(actor, { createdBy: before.createdBy, ownerId: before.ownerId }, "campaign");
     // The canonical ID and utm_campaign slug are immutable after creation;
     // metadata (name, owner, dates, lifecycle) may change freely.
     const [row] = await tx

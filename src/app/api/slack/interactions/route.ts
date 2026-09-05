@@ -85,6 +85,22 @@ function bulkRows(csv: string, campaignId: string, presetKey: string, defaultSou
 async function handlePayload(payload: Record<string, unknown>) {
   const identity = slackIdentityFromPayload(payload);
   if (!slackIdentityAllowed(identity)) return new Response("Slack workspace is not allowed.", { status: 403 });
+  // Every interaction type — including typeahead and modal opens — requires a
+  // mapped registry account, so workspace members without UTM Builder access
+  // cannot enumerate campaigns, presets, or taxonomy.
+  try {
+    await resolveSlackActor(await getDb(), identity);
+  } catch (error) {
+    if (payload.type === "block_suggestion") return json({ options: [] });
+    if (payload.type === "view_submission") {
+      return json({
+        response_action: "errors",
+        errors: { destination: `You do not have UTM Builder access: ${slackErrorMessage(error)}`.slice(0, 200) },
+      });
+    }
+    await postSlackDm(identity.userId, `You do not have UTM Builder access: ${slackErrorMessage(error)}`).catch(() => undefined);
+    return new Response("", { status: 200 });
+  }
   if (payload.type === "block_suggestion") {
     const value = ((payload.value as string | undefined) ?? "").trim().toLowerCase();
     const campaigns = (await listCampaigns(await getDb()))

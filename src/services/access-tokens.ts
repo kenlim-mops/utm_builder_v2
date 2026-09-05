@@ -13,7 +13,7 @@ import {
   users,
 } from "@/db/schema";
 import { recordAudit } from "./audit";
-import type { ApiScope, SessionUser } from "./auth";
+import { insecureDevFallbacksAllowed, type ApiScope, type SessionUser } from "./auth";
 
 export const UTM_CLIENT_SCOPES: ApiScope[] = [
   "utm:read",
@@ -31,6 +31,13 @@ export const DEFAULT_USER_SCOPES: ApiScope[] = [
 
 const ALL_SCOPES = new Set<ApiScope>(DEFAULT_USER_SCOPES);
 
+/** Investigators are read-only everywhere, including the tokens they mint. */
+const READ_ONLY_SCOPES = new Set<ApiScope>(["utm:read", "utm:preview", "gtm:read"]);
+
+function grantableScopes(role: SessionUser["role"]): Set<ApiScope> {
+  return role === "investigator" ? READ_ONLY_SCOPES : ALL_SCOPES;
+}
+
 export function validateExtensionRedirect(redirectUri: string): URL {
   const url = new URL(redirectUri);
   const match = /^([a-p]{32})\.chromiumapp\.org$/.exec(url.hostname);
@@ -41,19 +48,25 @@ export function validateExtensionRedirect(redirectUri: string): URL {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  if (process.env.NODE_ENV === "production" && configured.length === 0) {
-    throw new Error("EXTENSION_IDS must be configured in production.");
-  }
-  if (configured.length > 0 && !configured.includes(match[1])) {
+  if (configured.length === 0) {
+    // Fail closed unless a dev/test environment explicitly opts in.
+    if (!insecureDevFallbacksAllowed()) {
+      throw new Error("EXTENSION_IDS must be configured (or set ALLOW_INSECURE_DEV=true locally).");
+    }
+  } else if (!configured.includes(match[1])) {
     throw new Error("Chrome extension is not allowlisted.");
   }
   return url;
 }
 
-function normalizeScopes(requested?: string[]): ApiScope[] {
-  const values = requested?.length ? requested : DEFAULT_USER_SCOPES;
+function normalizeScopes(role: SessionUser["role"], requested?: string[]): ApiScope[] {
+  const allowed = grantableScopes(role);
+  const values = requested?.length ? requested : [...allowed];
   const scopes = [...new Set(values)] as ApiScope[];
   if (scopes.some((scope) => !ALL_SCOPES.has(scope))) throw new Error("Unsupported API scope.");
+  if (scopes.some((scope) => !allowed.has(scope))) {
+    throw new Error("Your role cannot mint tokens with write scopes.");
+  }
   return scopes;
 }
 
@@ -76,7 +89,7 @@ async function insertToken(
       userId: actor.id,
       label: input.label.trim() || input.clientType,
       tokenHash: sha256(token),
-      scopes: normalizeScopes(input.scopes),
+      scopes: normalizeScopes(actor.role, input.scopes),
       clientType: input.clientType,
       expiresAt,
     })
@@ -221,7 +234,8 @@ export async function exchangeExtensionAuthorizationCode(
       label: "Runpod UTM browser extension",
       clientType: "extension",
       ttlHours: 8,
-      scopes: UTM_CLIENT_SCOPES,
+      // Investigators get the read-only subset instead of an error.
+      scopes: UTM_CLIENT_SCOPES.filter((scope) => grantableScopes(actor.role).has(scope)),
     });
   });
 }

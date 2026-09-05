@@ -7,7 +7,7 @@ import { isValidId, newId } from "@/core/ids";
 import type { Db } from "@/db/client";
 import { campaigns, initiatives, links } from "@/db/schema";
 import { recordAudit } from "./audit";
-import type { SessionUser } from "./auth";
+import { assertCanManage, assertCanWrite, type SessionUser } from "./auth";
 
 export interface InitiativeInput {
   name: string;
@@ -19,6 +19,7 @@ export interface InitiativeInput {
 }
 
 export async function createInitiative(db: Db, actor: SessionUser, input: InitiativeInput) {
+  assertCanWrite(actor);
   const name = input.name?.trim();
   if (!name) throw new Error("Initiative name is required.");
   return db.transaction(async (tx) => {
@@ -58,6 +59,7 @@ export async function updateInitiative(
     const existing = await tx.select().from(initiatives).where(eq(initiatives.id, id));
     const before = existing[0];
     if (!before) throw new Error("Initiative not found.");
+    assertCanManage(actor, { createdBy: before.createdBy, ownerId: before.ownerId }, "initiative");
     const [row] = await tx
       .update(initiatives)
       .set({

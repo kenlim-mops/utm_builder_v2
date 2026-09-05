@@ -54,7 +54,8 @@ export class AuthError extends Error {
 }
 
 async function devProvider(): Promise<SessionUser | null> {
-  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEV_AUTH !== "true") {
+  // No escape hatch: the dev provider can never run in a production build.
+  if (process.env.NODE_ENV === "production") {
     throw new AuthError(
       401,
       "Dev auth provider is disabled in production. Configure AUTH_PROVIDER=sso.",
@@ -157,3 +158,44 @@ export async function requireRole(...roles: Role[]): Promise<SessionUser> {
 
 /** Investigators and admins may read audit data; only admins mutate config. */
 export const CAN_READ_AUDIT: Role[] = ["admin", "investigator"];
+
+/**
+ * Registry write gate, enforced inside the shared services so every client
+ * (web, /api/v1, Slack, MCP, extension) inherits it: investigators are
+ * read-only, exactly as the role documentation promises.
+ */
+export function assertCanWrite(actor: SessionUser): void {
+  if (actor.role === "investigator") {
+    throw new AuthError(403, "Investigator accounts are read-only and cannot make changes.");
+  }
+}
+
+/**
+ * Ownership gate for mutating an existing record: the creator, the record's
+ * owner, or an administrator. Applied to link revise/retire and
+ * campaign/initiative metadata updates.
+ */
+export function assertCanManage(
+  actor: SessionUser,
+  record: { createdBy?: string | null; ownerId?: string | null },
+  what: string,
+): void {
+  assertCanWrite(actor);
+  if (actor.role === "admin") return;
+  if (record.createdBy === actor.id || record.ownerId === actor.id) return;
+  throw new AuthError(
+    403,
+    `Only the creator, the owner, or an administrator can modify this ${what}.`,
+  );
+}
+
+/**
+ * True only when explicitly opted in outside production (or under test).
+ * Gates the dev-time fail-open fallbacks (unset Slack workspace allowlist,
+ * unset extension-ID allowlist) so an internet-exposed dev-mode instance is
+ * not open by default.
+ */
+export function insecureDevFallbacksAllowed(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  return process.env.NODE_ENV === "test" || process.env.ALLOW_INSECURE_DEV === "true";
+}

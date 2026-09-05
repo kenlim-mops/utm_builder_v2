@@ -1,5 +1,13 @@
 import { getDb } from "@/db/client";
-import { bulkUtmModal, singleUtmModal, slackIdentityAllowed, slackApi, verifySlackRequest } from "@/services/slack";
+import {
+  bulkUtmModal,
+  resolveSlackActor,
+  singleUtmModal,
+  slackApi,
+  slackErrorMessage,
+  slackIdentityAllowed,
+  verifySlackRequest,
+} from "@/services/slack";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +27,16 @@ export async function POST(req: Request) {
     enterpriseId: form.get("enterprise_id"),
   };
   if (!identity.userId || !slackIdentityAllowed(identity)) return new Response("Slack workspace is not allowed.", { status: 403 });
+  // Require a mapped, active registry account before serving any modal or
+  // registry-derived data (campaigns, taxonomy, presets).
+  try {
+    await resolveSlackActor(await getDb(), identity);
+  } catch (error) {
+    return Response.json({
+      response_type: "ephemeral",
+      text: `You do not have UTM Builder access: ${slackErrorMessage(error)}`,
+    });
+  }
   const text = (form.get("text") ?? "").trim();
   const isBulk = /^bulk(?:\s|$)/i.test(text);
   const destination = isBulk ? "" : text.replace(/^single\s+/i, "");

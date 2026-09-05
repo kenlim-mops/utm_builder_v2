@@ -2,6 +2,7 @@ import { getDb } from "@/db/client";
 import { buildIntegrationClients } from "@/services/integrations";
 import { processOutbox } from "@/services/outbox";
 import { json } from "@/server/http";
+import { safeEqual } from "@/core/tokens";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ async function run(req: Request) {
   const accepted = [process.env.OUTBOX_PROCESS_TOKEN, process.env.CRON_SECRET]
     .filter(Boolean)
     .map((t) => `Bearer ${t}`);
-  if (accepted.length === 0 || !auth || !accepted.includes(auth)) {
+  if (accepted.length === 0 || !auth || !accepted.some((candidate) => safeEqual(auth, candidate))) {
     return json({ error: "Unauthorized" }, { status: 401 });
   }
   const db = await getDb();

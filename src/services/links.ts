@@ -43,7 +43,7 @@ import {
 import { prefixedUlid } from "@/core/ids";
 import { stableRequestHash } from "@/core/tokens";
 import { recordAudit } from "./audit";
-import type { SessionUser } from "./auth";
+import { assertCanManage, assertCanWrite, type SessionUser } from "./auth";
 import { getConfig } from "./config";
 import { enqueueOutboxEvent } from "./outbox";
 import { getTaxonomyView } from "./taxonomy";
@@ -354,6 +354,7 @@ export async function issueLink(
   actor: SessionUser,
   input: LinkRequest,
 ): Promise<IssuedLink> {
+  assertCanWrite(actor);
   const config = await getConfig(db);
 
   return db.transaction(async (tx) => {
@@ -556,6 +557,7 @@ export async function recordReuse(
   actor: SessionUser,
   existingLinkId: string,
 ): Promise<void> {
+  assertCanWrite(actor);
   await db.transaction(async (tx) => {
     await tx.insert(duplicateResolutions).values({
       id: prefixedUlid("dup"),
@@ -590,6 +592,16 @@ export async function reviseLink(
     const existing = existingRows[0];
     if (!existing) throw new Error("Link not found.");
     if (existing.status === "retired") throw new Error("Retired links cannot be revised.");
+
+    const [owningCampaign] = await tx
+      .select({ ownerId: campaigns.ownerId })
+      .from(campaigns)
+      .where(eq(campaigns.id, existing.campaignId));
+    assertCanManage(
+      actor,
+      { createdBy: existing.createdBy, ownerId: owningCampaign?.ownerId },
+      "link",
+    );
 
     const request: LinkRequest = {
       destination: patch.destination ?? existing.destinationRaw,
@@ -696,6 +708,15 @@ export async function retireLink(db: Db, actor: SessionUser, linkId: string, rea
     const rows = await tx.select().from(links).where(eq(links.id, linkId));
     const existing = rows[0];
     if (!existing) throw new Error("Link not found.");
+    const [owningCampaign] = await tx
+      .select({ ownerId: campaigns.ownerId })
+      .from(campaigns)
+      .where(eq(campaigns.id, existing.campaignId));
+    assertCanManage(
+      actor,
+      { createdBy: existing.createdBy, ownerId: owningCampaign?.ownerId },
+      "link",
+    );
     const [row] = await tx
       .update(links)
       .set({ status: "retired", updatedAt: new Date() })

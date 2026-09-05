@@ -29,7 +29,7 @@ Requirements regardless of provider:
 | Variable | Environment | Value | Notes |
 |---|---|---|---|
 | `DATABASE_URL` | Production, Preview | `postgres://user:pass@host:5432/db` | Required in production. When unset, the app falls back to embedded PGlite — local dev only, never acceptable on Vercel. |
-| `AUTH_PROVIDER` | Production | `sso` | The dev provider throws in production (unless `ALLOW_DEV_AUTH=true`, which must never be set in production). |
+| `AUTH_PROVIDER` | Production | `sso` | The dev provider unconditionally refuses to run in a production build; there is no override. |
 | `OUTBOX_PROCESS_TOKEN` | Production, Preview | `<long random secret>` | Bearer token protecting `/api/outbox/process`. Required — the route rejects everything when no token is configured. |
 | `CRON_SECRET` | Production | `<long random secret>` | Vercel automatically sends this as `Authorization: Bearer` on both scheduled routes. |
 | `SOURCE_SYNC_TOKEN` | Production, Preview | `<long random secret>` | Optional separate operator token for manually invoking `/api/source-sync`; the route also accepts `CRON_SECRET`. |
@@ -155,7 +155,8 @@ Also take periodic config exports (`GET /api/admin/export`) as a lightweight, di
 - [ ] `DATABASE_URL`, `AUTH_PROVIDER=sso`, `OUTBOX_PROCESS_TOKEN`, `CRON_SECRET` set in Production env
 - [ ] Any pilot-enabled optional client is approved and configured: Slack allowlist, extension ID/distribution, and/or API/MCP token ownership. Unused clients remain disabled.
 - [ ] `ssoProvider()` implemented against the approved IdP; client-header spoofing verified impossible
-- [ ] `ALLOW_DEV_AUTH` **not** set anywhere in production
+- [ ] `ALLOW_INSECURE_DEV` **not** set anywhere in production (it is ignored in production builds, but keep configs clean)
+- [ ] `EXTENSION_IDS`, `SLACK_ALLOWED_TEAM_IDS`/`SLACK_ALLOWED_ENTERPRISE_IDS` configured — these now fail closed when unset in every environment unless `ALLOW_INSECURE_DEV=true` is explicitly set outside production
 - [ ] Migrations applied via explicit release step; seed run once; dev identities deactivated
 - [ ] Real admin users provisioned; roles verified
 - [ ] Cron running (check Vercel cron logs); outbox drains to `succeeded`

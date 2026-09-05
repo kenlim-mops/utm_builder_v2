@@ -1,3 +1,4 @@
+import { linkRequestSchema } from "@/contracts/public-api";
 import { getDb } from "@/db/client";
 import { requireUser } from "@/services/auth";
 import { issueLink } from "@/services/links";
@@ -28,7 +29,9 @@ export async function POST(req: Request) {
   return handle(async () => {
     const actor = await requireUser();
     const db = await getDb();
-    const input = await req.json();
+    // Same validated shape as /api/v1/links; batch/correlation/idempotency
+    // fields are server-assigned and never accepted from this entry point.
+    const input = linkRequestSchema.parse(await req.json());
     const result = await issueLink(db, actor, input);
     return json(result, { status: 201 });
   });

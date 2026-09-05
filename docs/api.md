@@ -6,6 +6,8 @@ The versioned API is the supported integration boundary for the browser extensio
 
 Create a personal token under **API access** in the web app. The plaintext token is shown once; only its SHA-256 hash is stored. Send it as:
 
+Token scopes default to the scopes allowed by the user's current role. Investigator tokens are created successfully with the read-only subset; clients should inspect `/session` capabilities before presenting write actions.
+
 ```http
 Authorization: Bearer rpt_...
 ```

@@ -20,6 +20,8 @@ Audience: campaign managers and anyone issuing governed campaign URLs.
 5. **Preview.** The preview (`POST /api/links/preview`) is a dry run: it validates, checks for duplicates, and shows the final URL with a placeholder link ID (`rpl_PREVIEW`). It never writes anything.
 6. **Issue.** Issuance is transactional and fail-closed: the real `rpl_` ID is minted server-side and the URL exists only if the registry commit succeeds. You can also save as **draft** — drafts are editable in place and are not counted as issued.
 
+Investigators have a read-only version of this workflow: they can search, validate, preview, and copy an existing governed URL, while create, issue, reuse-recording, revise, retire, and bulk controls are unavailable.
+
 The final URL always has governed parameters in this exact order:
 
 ```
@@ -160,6 +162,8 @@ Campaign creation also checks semantically equivalent names/slugs after normaliz
 Override authorization defaults to the `admin` role (admin-configurable). In bulk batches, exact duplicates become `skipped_duplicate` rows rather than failing the batch.
 
 **Who can revise or retire:** the link's creator, the owning campaign's owner, or an administrator. Investigator accounts are read-only everywhere.
+
+Campaign and initiative ownership may be transferred only by an administrator. The new owner must be an active `user` or `admin`, a written reason is required, and the before/after ownership state is recorded in the audit log.
 
 **Revisions:** drafts are edited in place (still audited). Issued links get an immutable `rpr_` revision containing the prior snapshot, the field diff, your reason, and your identity. Revising **never** changes the link ID, `utm_id`, or any URL already placed in an external platform — the registry never auto-updates external platforms. If the revised URL matters, you must re-paste it wherever it is used.
 

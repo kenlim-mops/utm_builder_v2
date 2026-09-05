@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { linkRevisions, links, validationRuns } from "@/db/schema";
-import { requireUser } from "@/services/auth";
+import { campaigns, linkRevisions, links, validationRuns } from "@/db/schema";
+import { canManage, requireUser } from "@/services/auth";
 import { retireLink, reviseLink } from "@/services/links";
 import { handle, json } from "@/server/http";
 
@@ -9,14 +9,23 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   return handle(async () => {
-    await requireUser();
+    const actor = await requireUser();
     const { id } = await params;
     const db = await getDb();
     const [link] = await db.select().from(links).where(eq(links.id, id));
     if (!link) return json({ error: "Link not found." }, { status: 404 });
     const revisions = await db.select().from(linkRevisions).where(eq(linkRevisions.linkId, id));
     const validations = await db.select().from(validationRuns).where(eq(validationRuns.linkId, id));
-    return json({ link, revisions, validations });
+    const [campaign] = await db
+      .select({ ownerId: campaigns.ownerId })
+      .from(campaigns)
+      .where(eq(campaigns.id, link.campaignId));
+    return json({
+      link,
+      revisions,
+      validations,
+      permissions: { canManage: canManage(actor, { createdBy: link.createdBy, ownerId: campaign?.ownerId }) },
+    });
   });
 }
 

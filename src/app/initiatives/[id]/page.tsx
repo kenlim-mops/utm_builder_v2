@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Badge, CopyButton, Msg } from "../../components";
+import { Badge, CopyButton, Msg, useSession } from "../../components";
 import {
   api,
   errText,
@@ -13,28 +13,45 @@ import {
   type Campaign,
   type Initiative,
   type LinkRec,
+  type UserRec,
 } from "../../lib";
 
 interface InitiativeDetail {
   initiative: Initiative;
   campaigns: Campaign[];
   links: LinkRec[];
+  permissions: { canManage: boolean; canTransferOwnership: boolean };
 }
 
 export default function InitiativeDetailPage() {
+  const { capabilities } = useSession();
   const params = useParams<{ id: string }>();
   const id = params?.id ?? "";
   const [detail, setDetail] = useState<InitiativeDetail | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState<UserRec[]>([]);
+  const [ownerId, setOwnerId] = useState("");
+  const [ownerReason, setOwnerReason] = useState("");
+  const [savingOwner, setSavingOwner] = useState(false);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     (async () => {
       try {
-        const d = await api<InitiativeDetail>(`/api/initiatives/${id}`);
-        if (!cancelled) setDetail(d);
+        const [d, u] = await Promise.all([
+          api<InitiativeDetail>(`/api/initiatives/${id}`),
+          capabilities.canAdminister
+            ? api<{ users: UserRec[] }>("/api/admin/users")
+            : Promise.resolve({ users: [] }),
+        ]);
+        if (!cancelled) {
+          setDetail(d);
+          setUsers(u.users.filter((user) => user.active && user.role !== "investigator"));
+          setOwnerId(d.initiative.ownerId ?? "");
+        }
       } catch (err) {
         if (!cancelled) setError(errText(err));
       } finally {
@@ -44,10 +61,30 @@ export default function InitiativeDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, capabilities.canAdminister]);
+
+  async function transferOwnership() {
+    if (!ownerId || !ownerReason.trim()) return;
+    setSavingOwner(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api<{ initiative: Initiative }>(`/api/initiatives/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ownerId, reason: ownerReason.trim() }),
+      });
+      setDetail((current) => current ? { ...current, initiative: result.initiative } : current);
+      setOwnerReason("");
+      setNotice("Initiative ownership updated and recorded in the audit log.");
+    } catch (err) {
+      setError(errText(err));
+    } finally {
+      setSavingOwner(false);
+    }
+  }
 
   if (loading) return <p aria-live="polite">Loading initiative…</p>;
-  if (error) return <Msg kind="error">{error}</Msg>;
+  if (error && !detail) return <Msg kind="error">{error}</Msg>;
   if (!detail) return null;
 
   const { initiative, campaigns, links } = detail;
@@ -58,6 +95,8 @@ export default function InitiativeDetailPage() {
       <p className="page-sub">
         <span className="mono">{initiative.id}</span> <Badge value={initiative.lifecycle} />
       </p>
+      <Msg kind="success">{notice}</Msg>
+      <Msg kind="error">{error}</Msg>
 
       <div className="card">
         <h2>Metadata</h2>
@@ -85,6 +124,10 @@ export default function InitiativeDetailPage() {
                 <td>{initiative.description ?? <span className="muted">—</span>}</td>
               </tr>
               <tr>
+                <th scope="row">Owner</th>
+                <td>{users.find((user) => user.id === initiative.ownerId)?.email ?? initiative.ownerId ?? <span className="muted">Unassigned</span>}</td>
+              </tr>
+              <tr>
                 <th scope="row">Created</th>
                 <td>{fmtDateTime(initiative.createdAt)}</td>
               </tr>
@@ -99,6 +142,27 @@ export default function InitiativeDetailPage() {
             View in registry
           </Link>
         </div>
+        {detail.permissions.canTransferOwnership ? (
+          <div className="inline-form">
+            <h3>Transfer ownership</h3>
+            <div className="field-row">
+              <div className="field">
+                <label htmlFor="initiative-owner">New owner</label>
+                <select id="initiative-owner" value={ownerId} onChange={(event) => setOwnerId(event.target.value)}>
+                  <option value="">Select an active owner…</option>
+                  {users.map((user) => <option key={user.id} value={user.id}>{user.email}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="initiative-owner-reason">Reason (required and audited)</label>
+                <input id="initiative-owner-reason" value={ownerReason} onChange={(event) => setOwnerReason(event.target.value)} />
+              </div>
+            </div>
+            <button type="button" disabled={savingOwner || !ownerId || !ownerReason.trim() || ownerId === initiative.ownerId} onClick={() => void transferOwnership()}>
+              {savingOwner ? "Saving…" : "Transfer ownership"}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="card">

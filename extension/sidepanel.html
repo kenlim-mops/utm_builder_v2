@@ -31,10 +31,10 @@
         </label>
 
         <label>Initiative <select id="initiative"><option value="">No initiative</option></select></label>
-        <details><summary>Create an initiative</summary><div class="inline-form"><input id="newInitiativeName" placeholder="Product launch name" /><button id="createInitiative" type="button" class="secondary">Create</button></div></details>
+        <details id="createInitiativeSection"><summary>Create an initiative</summary><div class="inline-form"><input id="newInitiativeName" placeholder="Product launch name" /><button id="createInitiative" type="button" class="secondary">Create</button></div></details>
 
         <label>Campaign <select id="campaign" required><option value="">Select a campaign…</option></select></label>
-        <details><summary>Create a campaign</summary><div class="stack"><input id="newCampaignName" placeholder="Campaign display name" /><input id="newCampaignSlug" placeholder="utm_campaign (optional)" /><button id="createCampaign" type="button" class="secondary">Create and select</button></div></details>
+        <details id="createCampaignSection"><summary>Create a campaign</summary><div class="stack"><input id="newCampaignName" placeholder="Campaign display name" /><input id="newCampaignSlug" placeholder="utm_campaign (optional)" /><button id="createCampaign" type="button" class="secondary">Create and select</button></div></details>
 
         <label>Platform preset <select id="preset"></select></label>
         <div class="two-col"><label>Medium<select id="medium"></select></label><label>Source<select id="source"></select></label></div>
@@ -42,6 +42,7 @@
         <label>Term <input id="term" placeholder="keyword or targeting (optional)" /></label>
 
         <div class="row sticky-actions"><button id="preview" type="button" class="secondary">Preview</button><button id="issue" type="submit">Issue & copy</button></div>
+        <p id="readOnlyNotice" class="muted hidden">Read-only access: preview is available, but issuing and creating records are disabled.</p>
       </form>
 
       <section id="result" class="card hidden" aria-live="polite">

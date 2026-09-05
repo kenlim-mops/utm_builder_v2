@@ -3,10 +3,11 @@
 /** Initiatives: list + create. */
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Msg } from "../components";
+import { Badge, Msg, useSession } from "../components";
 import { api, errText, fmtDate, type Initiative } from "../lib";
 
 export default function InitiativesPage() {
+  const { capabilities } = useSession();
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -74,7 +75,7 @@ export default function InitiativesPage() {
       <h1>Initiatives</h1>
       <p className="page-sub">Strategic groupings that campaigns and links roll up to.</p>
 
-      <div className="card">
+      {capabilities.canCreateInitiative ? <div className="card">
         <h2>Create initiative</h2>
         <div className="field-row">
           <div className="field">
@@ -136,7 +137,9 @@ export default function InitiativesPage() {
         </button>
         <Msg kind="error">{createError}</Msg>
         <Msg kind="success">{notice}</Msg>
-      </div>
+      </div> : (
+        <Msg kind="info">Read-only access: you can browse initiatives, but cannot create them.</Msg>
+      )}
 
       <Msg kind="error">{error}</Msg>
       {loading ? <p aria-live="polite">Loading initiatives…</p> : null}

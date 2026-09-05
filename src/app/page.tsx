@@ -25,8 +25,9 @@ import {
 } from "./lib";
 
 export default function BuilderPage() {
-  const { session } = useSession();
+  const { session, capabilities } = useSession();
   const isAdmin = session?.role === "admin";
+  const canWrite = capabilities.canWrite;
 
   // Reference data
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
@@ -318,13 +319,15 @@ export default function BuilderPage() {
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              className="btn-link small"
-              onClick={() => setShowNewInitiative((v) => !v)}
-            >
-              {showNewInitiative ? "Cancel new initiative" : "+ Create initiative"}
-            </button>
+            {capabilities.canCreateInitiative ? (
+              <button
+                type="button"
+                className="btn-link small"
+                onClick={() => setShowNewInitiative((v) => !v)}
+              >
+                {showNewInitiative ? "Cancel new initiative" : "+ Create initiative"}
+              </button>
+            ) : null}
             {showNewInitiative ? (
               <div className="inline-form">
                 <div className="field">
@@ -363,13 +366,15 @@ export default function BuilderPage() {
               Campaigns are never auto-created from a typed name — create one explicitly if it
               does not exist yet.
             </p>
-            <button
-              type="button"
-              className="btn-link small"
-              onClick={() => setShowNewCampaign((v) => !v)}
-            >
-              {showNewCampaign ? "Cancel new campaign" : "+ Create campaign"}
-            </button>
+            {capabilities.canCreateCampaign ? (
+              <button
+                type="button"
+                className="btn-link small"
+                onClick={() => setShowNewCampaign((v) => !v)}
+              >
+                {showNewCampaign ? "Cancel new campaign" : "+ Create campaign"}
+              </button>
+            ) : null}
             {showNewCampaign ? (
               <div className="inline-form">
                 <div className="field">
@@ -525,7 +530,7 @@ export default function BuilderPage() {
           <div className="btn-row">
             <button
               type="button"
-              disabled={submitting !== "" || !destination.trim() || !campaignId}
+              disabled={!canWrite || submitting !== "" || !destination.trim() || !campaignId}
               onClick={() => void submit("draft")}
             >
               {submitting === "draft" ? "Saving…" : "Save draft"}
@@ -533,12 +538,16 @@ export default function BuilderPage() {
             <button
               type="button"
               className="btn-primary"
-              disabled={submitting !== "" || !destination.trim() || !campaignId}
+              disabled={!capabilities.canIssue || submitting !== "" || !destination.trim() || !campaignId}
               onClick={() => void submit("issued")}
             >
               {submitting === "issued" ? "Issuing…" : "Issue link"}
             </button>
           </div>
+
+          {!canWrite ? (
+            <Msg kind="info">Read-only access: you can preview and copy governed URLs, but you cannot create or modify registry records.</Msg>
+          ) : null}
 
           <Msg kind="error">{submitError}</Msg>
           <FindingList findings={submitFindings} />
@@ -621,12 +630,14 @@ export default function BuilderPage() {
                   </Msg>
                   <div className="final-url mono">{exact.finalUrl}</div>
                   <div className="btn-row">
-                    <button
-                      type="button"
-                      onClick={() => void reuseExisting(exact.linkId, exact.finalUrl)}
-                    >
-                      Reuse existing link
-                    </button>
+                    {canWrite ? (
+                      <button
+                        type="button"
+                        onClick={() => void reuseExisting(exact.linkId, exact.finalUrl)}
+                      >
+                        Reuse existing link
+                      </button>
+                    ) : null}
                     <CopyButton text={exact.finalUrl} label="Copy existing URL" />
                   </div>
                   <Msg kind="info">{reuseStatus}</Msg>

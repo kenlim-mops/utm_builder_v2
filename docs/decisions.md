@@ -169,10 +169,10 @@ Format per entry: Status / Context / Options / Decision / Justification / Tradeo
 - **Status:** Accepted (interim)
 - **Context:** Runpod's IdP choice for internal tools isn't approved yet; development can't wait.
 - **Options:** (a) block on SSO; (b) build a full local auth system (passwords/sessions); (c) provider abstraction with a dev provider now and an SSO seam.
-- **Decision:** `getSession()` in `src/services/auth.ts` dispatches on `AUTH_PROVIDER`. The `dev` provider selects a seeded identity via cookie and refuses to run in production; the `sso` provider is a stub with a documented integration contract ([deployment-vercel.md](deployment-vercel.md) §4). Roles always come from the `users` table, server-side.
+- **Decision:** `getSession()` in `src/services/auth.ts` dispatches on `AUTH_PROVIDER`. The `dev` provider selects a seeded identity via cookie and refuses to run in production. The `sso` provider verifies a short-lived HMAC-signed email supplied by an approved identity-aware proxy, then reads roles from the `users` table server-side ([deployment-vercel.md](deployment-vercel.md) §4).
 - **Justification:** A homegrown password system would be discarded work and a liability. The abstraction keeps every route's enforcement (`requireUser`/`requireRole`) final regardless of provider.
-- **Tradeoffs:** Production deployment is hard-blocked on SSO implementation; the former `ALLOW_DEV_AUTH` escape hatch was removed after security review (2026-09-04) — the dev provider now unconditionally refuses production, and staging must use the SSO provider or a non-production build.
-- **Revisit trigger:** SSO provider approval (Open decisions) → implement `ssoProvider()` and delete the escape hatch from runbooks.
+- **Tradeoffs:** Production and Preview require the identity proxy and separate `SSO_HEADER_SECRET` values. The former `ALLOW_DEV_AUTH` escape hatch remains removed; no deployed environment may use the dev identity provider.
+- **Revisit trigger:** An approved IdP SDK that can be verified directly inside the application may replace the signed-proxy adapter.
 
 ## 18. Browser side panel as the primary one-off adoption surface
 
@@ -319,7 +319,7 @@ Format per entry: Status / Context / Options / Decision / Justification / Tradeo
 
 Not yet decided; each blocks or shapes production rollout:
 
-1. **Approved SSO provider** — which Runpod IdP/proxy, and the principal-verification mechanism for `ssoProvider()`. Blocks production launch.
+1. **Approved SSO provider/proxy** — choose and configure the Runpod IdP integration that will emit the signed principal contract. Configuration and spoofing validation block production launch.
 2. **Approved PostgreSQL provider** — Neon vs. Vercel Postgres vs. RDS vs. other; determines pooling, PITR mechanics, and network policy. Blocks production launch.
 3. **Public-param final policy** — whether to enable `rp_initiative_id` (after GA4 custom dimension work) and whether `rp_link_id` stays on for all channels.
 4. **Data retention** — retention windows for audit events, outbox/sync-attempt history, and reconciliation runs; raw link values are expected to be retained indefinitely.

@@ -4,18 +4,19 @@
  * Runpod SSO is not yet approved/configured, so V2 ships with:
  *  - "dev" provider: cookie-selected identity from the seeded users table.
  *    Local development only; it refuses to run in production.
- *  - "sso" provider stub: the integration point for the approved Runpod IdP
- *    (see docs/deployment-vercel.md). It must map the verified principal to a
- *    row in `users` — roles are always read server-side from the database.
+ *  - "sso" provider: verifies a short-lived HMAC-signed principal from an
+ *    approved identity-aware proxy (see docs/deployment-vercel.md), then maps
+ *    it to `users`; roles are always read server-side from the database.
  *
  * There are no client-only role checks anywhere: every mutation route calls
  * requireUser/requireRole on the server.
  */
-import { cookies } from "next/headers";
+import { createHmac } from "node:crypto";
+import { cookies, headers } from "next/headers";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { apiAccessTokens, users } from "@/db/schema";
-import { sha256 } from "@/core/tokens";
+import { safeEqual, sha256 } from "@/core/tokens";
 
 export type Role = "user" | "admin" | "investigator";
 
@@ -24,6 +25,15 @@ export interface SessionUser {
   email: string;
   name: string;
   role: Role;
+}
+
+export interface SessionCapabilities {
+  canWrite: boolean;
+  canIssue: boolean;
+  canCreateCampaign: boolean;
+  canCreateInitiative: boolean;
+  canReadAudit: boolean;
+  canAdminister: boolean;
 }
 
 export type ApiScope =
@@ -70,13 +80,42 @@ async function devProvider(): Promise<SessionUser | null> {
   return { id: row.id, email: row.email, name: row.name, role: row.role };
 }
 
-async function ssoProvider(): Promise<SessionUser | null> {
-  // Integration point: verify the SSO session (e.g. via the IdP SDK or a
-  // signed header from the Runpod-approved proxy), then map to `users`.
-  throw new AuthError(
-    401,
-    "SSO provider is not configured. See docs/deployment-vercel.md for the integration contract.",
-  );
+export function verifySsoPrincipal(input: {
+  email: string | null;
+  timestamp: string | null;
+  signature: string | null;
+  secret?: string;
+  nowSeconds?: number;
+}): string {
+  if (!input.secret) throw new AuthError(401, "SSO verification is not configured.");
+  const email = input.email?.trim().toLowerCase() ?? "";
+  const timestamp = input.timestamp ?? "";
+  const seconds = Number(timestamp);
+  const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (!email || !email.includes("@") || !Number.isFinite(seconds) || Math.abs(now - seconds) > 300) {
+    throw new AuthError(401, "SSO principal is missing or expired.");
+  }
+  const expected = `v1=${createHmac("sha256", input.secret)
+    .update(`${timestamp}\n${email}`)
+    .digest("hex")}`;
+  if (!input.signature || !safeEqual(input.signature, expected)) {
+    throw new AuthError(401, "SSO principal signature is invalid.");
+  }
+  return email;
+}
+
+async function ssoProvider(req?: Request): Promise<SessionUser | null> {
+  const incoming = req?.headers ?? (await headers());
+  const email = verifySsoPrincipal({
+    email: incoming.get("x-runpod-auth-email"),
+    timestamp: incoming.get("x-runpod-auth-timestamp"),
+    signature: incoming.get("x-runpod-auth-signature"),
+    secret: process.env.SSO_HEADER_SECRET,
+  });
+  const db = await getDb();
+  const [row] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (!row?.active) return null;
+  return { id: row.id, email: row.email, name: row.name, role: row.role };
 }
 
 async function bearerProvider(req: Request): Promise<ApiSessionUser | null> {
@@ -118,8 +157,37 @@ async function bearerProvider(req: Request): Promise<ApiSessionUser | null> {
 export async function getSession(req?: Request): Promise<SessionUser | ApiSessionUser | null> {
   if (req?.headers.get("authorization")) return bearerProvider(req);
   const provider = process.env.AUTH_PROVIDER ?? "dev";
-  if (provider === "sso") return ssoProvider();
-  return devProvider();
+  if (provider === "sso") return ssoProvider(req);
+  if (provider === "dev") return devProvider();
+  throw new AuthError(401, "AUTH_PROVIDER is invalid. Use dev or sso.");
+}
+
+export function capabilitiesFor(actor: SessionUser | null): SessionCapabilities {
+  const allowedByRole = Boolean(actor && actor.role !== "investigator");
+  const scopes = actor && "authMethod" in actor
+    ? new Set((actor as ApiSessionUser).scopes)
+    : null;
+  const canIssue = allowedByRole && (!scopes || scopes.has("utm:issue"));
+  const canCreateCampaign = allowedByRole && (!scopes || scopes.has("utm:campaigns:write"));
+  const canCreateInitiative = allowedByRole && (!scopes || scopes.has("utm:initiatives:write"));
+  const canWrite = canIssue || canCreateCampaign || canCreateInitiative;
+  return {
+    canWrite,
+    canIssue,
+    canCreateCampaign,
+    canCreateInitiative,
+    canReadAudit: Boolean(actor && CAN_READ_AUDIT.includes(actor.role)),
+    canAdminister: actor?.role === "admin",
+  };
+}
+
+export function canManage(
+  actor: SessionUser,
+  record: { createdBy?: string | null; ownerId?: string | null },
+): boolean {
+  return actor.role !== "investigator" && (
+    actor.role === "admin" || record.createdBy === actor.id || record.ownerId === actor.id
+  );
 }
 
 export async function requireUser(req?: Request): Promise<SessionUser | ApiSessionUser> {
@@ -181,8 +249,7 @@ export function assertCanManage(
   what: string,
 ): void {
   assertCanWrite(actor);
-  if (actor.role === "admin") return;
-  if (record.createdBy === actor.id || record.ownerId === actor.id) return;
+  if (canManage(actor, record)) return;
   throw new AuthError(
     403,
     `Only the creator, the owner, or an administrator can modify this ${what}.`,

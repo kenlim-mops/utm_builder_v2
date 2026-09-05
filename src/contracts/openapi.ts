@@ -16,6 +16,7 @@ export const openApiDocument = {
         required: ["name"],
         properties: {
           name: { type: "string", maxLength: 160 },
+          ownerId: { type: "string", description: "Optional owner assignment; assigning another user requires admin role" },
           utmCampaign: { type: "string", maxLength: 100 },
           initiativeId: { type: ["string", "null"] },
           product: { type: ["string", "null"] },

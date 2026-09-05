@@ -89,7 +89,11 @@ export async function resolveSlackActor(db: Db, identity: SlackRequestIdentity):
 const plain = (text: string) => ({ type: "plain_text" as const, text: text.slice(0, 75) });
 const option = (label: string, value: string): SlackOption => ({ text: plain(label), value: value.slice(0, 150) });
 
-export async function singleUtmModal(db: Db, initialDestination = "") {
+export async function singleUtmModal(
+  db: Db,
+  initialDestination = "",
+  options: { readOnly?: boolean } = {},
+) {
   const [presets, taxonomy] = await Promise.all([listPresets(db), listTaxonomy(db)]);
   const presetOptions = presets
     .filter((item) => item.verificationState !== "deprecated")
@@ -106,7 +110,7 @@ export async function singleUtmModal(db: Db, initialDestination = "") {
   return {
     type: "modal",
     callback_id: "utm_single_preview",
-    title: plain("Create governed UTM"),
+    title: plain(options.readOnly ? "Preview governed UTM" : "Create governed UTM"),
     submit: plain("Preview"),
     close: plain("Cancel"),
     blocks: [
@@ -114,6 +118,10 @@ export async function singleUtmModal(db: Db, initialDestination = "") {
         type: "input", block_id: "destination", label: plain("Destination URL"),
         element: { type: "plain_text_input", action_id: "value", max_length: 2000, initial_value: initialDestination.slice(0, 2000), placeholder: plain("runpod.io/path or full URL") },
       },
+      ...(options.readOnly ? [{
+        type: "context",
+        elements: [{ type: "mrkdwn", text: "Your investigator role is read-only. Preview is available, but no registry record can be created." }],
+      }] : []),
       {
         type: "input", block_id: "campaign", label: plain("Campaign"),
         element: { type: "external_select", action_id: "value", min_query_length: 0, placeholder: plain("Search governed campaigns") },
@@ -217,4 +225,8 @@ export async function postSlackDm(userId: string, text: string, blocks?: unknown
 
 export function slackErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function slackErrorBlockId(callbackId: string | undefined): "csv" | "destination" {
+  return callbackId === "utm_bulk_issue" ? "csv" : "destination";
 }

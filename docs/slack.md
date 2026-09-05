@@ -49,6 +49,8 @@ For issuance, the app maps the signed Slack user to an active UTM Builder accoun
 
 The app never auto-creates a UTM user or grants a role from Slack. Roles remain server-side in the Builder. Slack-originated link/reuse/batch actions therefore use the same permissions and immutable audit trail as the web app, API, extension, and MCP.
 
+Investigators may use the single-link modal through the preview step, but the confirmation view cannot issue or record reuse. Bulk shortcuts and `/utm bulk` return a read-only explanation instead of opening a workflow that will fail.
+
 ## Shared Slack app manifest
 
 The canonical template is [slack/manifest.json](../slack/manifest.json). Before importing it, replace the two illustrative production domains if the approved hostnames differ:

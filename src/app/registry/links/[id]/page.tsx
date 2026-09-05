@@ -24,6 +24,7 @@ interface LinkDetail {
   link: LinkRec;
   revisions: LinkRevision[];
   validations: ValidationRun[];
+  permissions: { canManage: boolean };
 }
 
 interface ReviseForm {
@@ -139,7 +140,7 @@ export default function LinkDetailPage() {
   }
   if (!detail) return null;
 
-  const { link, revisions, validations } = detail;
+  const { link, revisions, validations, permissions } = detail;
   const sortedRevisions = [...revisions].sort((a, b) => b.revisionNumber - a.revisionNumber);
   const sortedValidations = [...validations].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
@@ -277,6 +278,8 @@ export default function LinkDetailPage() {
             <h2>Actions</h2>
             {link.status === "retired" ? (
               <p className="muted">This link is retired — no further changes are allowed.</p>
+            ) : !permissions.canManage ? (
+              <p className="muted">You have read-only access to this link. Only its creator, campaign owner, or an administrator can revise or retire it.</p>
             ) : (
               <div className="btn-row" style={{ marginTop: 0 }}>
                 <button type="button" onClick={() => setShowRevise((v) => !v)}>

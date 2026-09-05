@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const initiativeInputSchema = z.object({
   name: z.string().trim().min(1).max(160),
+  ownerId: z.string().trim().min(1).optional(),
   product: z.string().trim().max(160).nullish(),
   initiativeType: z.string().trim().max(80).nullish(),
   startDate: z.string().datetime().or(z.string().date()).nullish(),
@@ -11,6 +12,7 @@ export const initiativeInputSchema = z.object({
 
 export const campaignInputSchema = z.object({
   name: z.string().trim().min(1).max(160),
+  ownerId: z.string().trim().min(1).optional(),
   utmCampaign: z.string().trim().max(100).optional(),
   initiativeId: z.string().trim().nullish(),
   product: z.string().trim().max(160).nullish(),

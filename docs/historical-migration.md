@@ -14,6 +14,7 @@ Set a production effective timestamp. Records issued by V2 at or after that time
 - Prefer `unmapped` over a confident-looking but ambiguous attribution.
 - Time-bound mappings when a legacy name changed meaning.
 - Preserve who approved each mapping, its evidence, confidence, and effective dates.
+- Assign each imported campaign/initiative an active write-capable `ownerId`. If the historical creator maps to an active `user` or `admin`, the owner-backfill migration uses that identity; unresolved records remain unassigned for explicit administrator review rather than guessing.
 
 ## Discovery inventory
 

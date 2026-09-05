@@ -6,7 +6,24 @@ import { newId } from "@/core/ids";
 import type { Db } from "@/db/client";
 import { users } from "@/db/schema";
 import { recordAudit } from "./audit";
-import type { Role, SessionUser } from "./auth";
+import { AuthError, type Role, type SessionUser } from "./auth";
+
+/** Resolve an active write-capable owner. Only admins may assign another user. */
+export async function resolveRecordOwner(
+  db: Db,
+  actor: SessionUser,
+  requestedOwnerId: string | undefined,
+  fallbackOwnerId = actor.id,
+): Promise<string> {
+  const ownerId = requestedOwnerId ?? fallbackOwnerId;
+  if (ownerId !== actor.id && actor.role !== "admin") {
+    throw new AuthError(403, "Only an administrator can assign or transfer record ownership.");
+  }
+  const [owner] = await db.select().from(users).where(eq(users.id, ownerId)).limit(1);
+  if (!owner?.active) throw new Error("The selected owner is not an active user.");
+  if (owner.role === "investigator") throw new Error("Read-only investigators cannot own writable records.");
+  return owner.id;
+}
 
 export async function listUsers(db: Db) {
   return db.select().from(users).orderBy(asc(users.email));

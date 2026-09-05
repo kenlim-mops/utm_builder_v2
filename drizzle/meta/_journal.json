@@ -29,6 +29,13 @@
       "when": 1788211946258,
       "tag": "0003_stale_the_anarchist",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788581084000,
+      "tag": "0004_backfill_record_owners",
+      "breakpoints": true
     }
   ]
 }

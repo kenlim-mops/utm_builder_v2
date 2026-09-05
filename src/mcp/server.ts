@@ -53,6 +53,7 @@ export function createGtmDataMcpServer(
 ) {
   const server = new McpServer({ name: "runpod-gtm-data", version: "1.0.0" });
 
+  if (actor.scopes.includes("gtm:read")) {
   server.registerTool(
     "gtm_search_catalog",
     {
@@ -226,7 +227,9 @@ export function createGtmDataMcpServer(
       return textResult(await listSourceUpdates(await dbProvider(), input));
     },
   );
+  }
 
+  if (actor.scopes.includes("gtm:templates")) {
   server.registerTool(
     "gtm_list_bulk_templates",
     {
@@ -265,7 +268,9 @@ export function createGtmDataMcpServer(
       return textResult(await validateBulkChange(await dbProvider(), templateKey, csv));
     },
   );
+  }
 
+  if (actor.scopes.includes("utm:read")) {
   server.registerTool(
     "utm_list_reference_data",
     {
@@ -307,7 +312,9 @@ export function createGtmDataMcpServer(
       return textResult(await searchLinks(await dbProvider(), { q: query, ...filters }));
     },
   );
+  }
 
+  if (actor.scopes.includes("utm:initiatives:write")) {
   server.registerTool(
     "utm_create_initiative",
     {
@@ -315,6 +322,7 @@ export function createGtmDataMcpServer(
       description: "Create an optional top-level grouping for a launch or GTM motion. This writes to the registry and is audited.",
       inputSchema: {
         name: z.string().min(1).max(160),
+        ownerId: z.string().optional().describe("Administrator-only when assigning another user."),
         product: z.string().nullable().optional(),
         initiativeType: z.string().nullable().optional(),
         startDate: z.string().nullable().optional(),
@@ -329,7 +337,9 @@ export function createGtmDataMcpServer(
       return textResult({ initiative: await createInitiative(await dbProvider(), actor, input) });
     },
   );
+  }
 
+  if (actor.scopes.includes("utm:campaigns:write")) {
   server.registerTool(
     "utm_create_campaign",
     {
@@ -337,6 +347,7 @@ export function createGtmDataMcpServer(
       description: "Create the canonical campaign record and immutable rpc_ ID used as utm_id. Semantic duplicates return candidates to reuse; an administrator may use a reason-required audited override. This writes to the registry.",
       inputSchema: {
         name: z.string().min(1).max(160),
+        ownerId: z.string().optional().describe("Administrator-only when assigning another user."),
         utmCampaign: z.string().optional(),
         initiativeId: z.string().nullable().optional(),
         product: z.string().nullable().optional(),
@@ -355,7 +366,9 @@ export function createGtmDataMcpServer(
       return textResult({ campaign: await createCampaign(await dbProvider(), actor, input) });
     },
   );
+  }
 
+  if (actor.scopes.includes("utm:preview")) {
   server.registerTool(
     "utm_preview_link",
     {
@@ -368,7 +381,9 @@ export function createGtmDataMcpServer(
       return textResult(await previewLink(await dbProvider(), input));
     },
   );
+  }
 
+  if (actor.scopes.includes("utm:issue")) {
   server.registerTool(
     "utm_issue_link",
     {
@@ -404,6 +419,7 @@ export function createGtmDataMcpServer(
       return textResult(await createBatch(await dbProvider(), actor, rows, source));
     },
   );
+  }
 
   return server;
 }

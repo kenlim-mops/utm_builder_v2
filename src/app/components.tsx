@@ -7,18 +7,38 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { api, errText, type Finding, type Session } from "./lib";
+import { api, errText, type Finding, type Session, type SessionCapabilities } from "./lib";
 
 // ------------------------------------------------------------ useSession
 
-export function useSession(): { session: Session | null; loading: boolean } {
+const NO_CAPABILITIES: SessionCapabilities = {
+  canWrite: false,
+  canIssue: false,
+  canCreateCampaign: false,
+  canCreateInitiative: false,
+  canReadAudit: false,
+  canAdminister: false,
+};
+
+export function useSession(): {
+  session: Session | null;
+  capabilities: SessionCapabilities;
+  authProvider: string;
+  loading: boolean;
+} {
   const [session, setSession] = useState<Session | null>(null);
+  const [capabilities, setCapabilities] = useState<SessionCapabilities>(NO_CAPABILITIES);
+  const [authProvider, setAuthProvider] = useState("");
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    api<{ session: Session | null }>("/api/session")
+    api<{ session: Session | null; capabilities: SessionCapabilities; authProvider: string }>("/api/session")
       .then((d) => {
-        if (!cancelled) setSession(d.session);
+        if (!cancelled) {
+          setSession(d.session);
+          setCapabilities(d.capabilities);
+          setAuthProvider(d.authProvider);
+        }
       })
       .catch(() => {
         if (!cancelled) setSession(null);
@@ -30,19 +50,19 @@ export function useSession(): { session: Session | null; loading: boolean } {
       cancelled = true;
     };
   }, []);
-  return { session, loading };
+  return { session, capabilities, authProvider, loading };
 }
 
 // ------------------------------------------------------------------- Nav
 
-const NAV_ITEMS: [string, string][] = [
-  ["/", "Builder"],
-  ["/bulk", "Bulk"],
-  ["/registry", "Registry"],
-  ["/initiatives", "Initiatives"],
-  ["/settings/access-tokens", "API access"],
-  ["/admin", "Admin"],
-  ["/admin/audit", "Audit"],
+const NAV_ITEMS: [string, string, keyof SessionCapabilities | null][] = [
+  ["/", "Builder", null],
+  ["/bulk", "Bulk", "canWrite"],
+  ["/registry", "Registry", null],
+  ["/initiatives", "Initiatives", null],
+  ["/settings/access-tokens", "API access", null],
+  ["/admin", "Admin", "canAdminister"],
+  ["/admin/audit", "Audit", "canReadAudit"],
 ];
 
 const DEV_IDENTITIES = [
@@ -53,7 +73,7 @@ const DEV_IDENTITIES = [
 
 export function Nav() {
   const pathname = usePathname() ?? "/";
-  const { session, loading } = useSession();
+  const { session, capabilities, authProvider, loading } = useSession();
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState("");
 
@@ -76,6 +96,20 @@ export function Nav() {
     }
   }, []);
 
+  const resetIdentity = useCallback(async () => {
+    setSwitching(true);
+    setSwitchError("");
+    try {
+      await api("/api/session", { method: "DELETE" });
+      window.location.reload();
+    } catch (err) {
+      setSwitchError(errText(err));
+      setSwitching(false);
+    }
+  }, []);
+
+  const visibleNavItems = NAV_ITEMS.filter(([, , capability]) => !capability || capabilities[capability]);
+
   const identities = session && !DEV_IDENTITIES.includes(session.email)
     ? [session.email, ...DEV_IDENTITIES]
     : DEV_IDENTITIES;
@@ -86,7 +120,7 @@ export function Nav() {
         <Link href="/" className="nav-brand">
           Runpod UTM Registry
         </Link>
-        {NAV_ITEMS.map(([href, label]) => (
+        {visibleNavItems.map(([href, label]) => (
           <Link
             key={href}
             href={href}
@@ -119,26 +153,20 @@ export function Nav() {
                 ))}
               </select>
             </>
-          ) : (
+          ) : authProvider === "dev" ? (
             <>
               <span>No session.</span>
-              <label htmlFor="identity-switcher" className="hint" style={{ margin: 0 }}>
-                Switch to
-              </label>
-              <select
-                id="identity-switcher"
-                value=""
+              <button
+                type="button"
+                className="btn-small"
                 disabled={switching}
-                onChange={(e) => void switchIdentity(e.target.value)}
+                onClick={() => void resetIdentity()}
               >
-                <option value="">Pick a dev identity…</option>
-                {DEV_IDENTITIES.map((email) => (
-                  <option key={email} value={email}>
-                    {email}
-                  </option>
-                ))}
-              </select>
+                Reset local identity
+              </button>
             </>
+          ) : (
+            <span>No authenticated session.</span>
           )}
           {switchError ? (
             <span role="alert" className="small" style={{ color: "var(--err)" }}>

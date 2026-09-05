@@ -1,5 +1,5 @@
 import { getDb } from "@/db/client";
-import { requireUser } from "@/services/auth";
+import { canManage, requireUser } from "@/services/auth";
 import { campaignDetail, updateCampaign } from "@/services/campaigns";
 import { handle, json } from "@/server/http";
 
@@ -7,12 +7,21 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   return handle(async () => {
-    await requireUser();
+    const actor = await requireUser();
     const { id } = await params;
     const db = await getDb();
     const detail = await campaignDetail(db, id);
     if (!detail) return json({ error: "Campaign not found." }, { status: 404 });
-    return json(detail);
+    return json({
+      ...detail,
+      permissions: {
+        canManage: canManage(actor, {
+          createdBy: detail.campaign.createdBy,
+          ownerId: detail.campaign.ownerId,
+        }),
+        canTransferOwnership: actor.role === "admin",
+      },
+    });
   });
 }
 

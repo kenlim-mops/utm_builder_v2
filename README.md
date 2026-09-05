@@ -30,7 +30,7 @@ Use the smallest useful end-to-end pilot first: web + registry + approved taxono
 - HubSpot campaign sync via transactional outbox (idempotent, retried with backoff, dead-lettered, reconcilable)
 - Versioned registry snapshots staged in PostgreSQL for downstream Snowflake conformed dimensions
 - Append-only audit trail with before/after diffs and secret redaction
-- Roles: `user`, `admin`, `investigator` (read-only audit/integration access); all enforcement server-side
+- Roles: `user`, `admin`, `investigator`; permissions are enforced server-side and exposed as capabilities so every UI removes actions the current user cannot complete
 - Fail-closed issuance: a URL exists only if the registry transaction committed
 - Manifest V3 Chrome side panel: capture the current page or right-click a link, preview, issue, log, and copy without leaving the platform workflow
 - Supported `/api/v1` surface with bearer scopes, stable error envelopes, CORS allowlisting, OpenAPI, and idempotent single-link issuance
@@ -149,7 +149,7 @@ No database setup required: with `DATABASE_URL` unset, the app auto-provisions a
 | `dev-user@runpod.io` | user |
 | `dev-investigator@runpod.io` | investigator |
 
-The dev auth provider (`AUTH_PROVIDER=dev`, the default) selects the identity from the `rp_dev_identity` cookie (set via `POST /api/session {"email": ...}`); it defaults to the dev admin and refuses to run in production.
+The dev auth provider (`AUTH_PROVIDER=dev`, the default) selects the identity from the `rp_dev_identity` cookie (set via `POST /api/session {"email": ...}`); it defaults to the dev admin and refuses to run in production. Deployed Preview and Production environments use `AUTH_PROVIDER=sso` with the signed-principal proxy contract in [the Vercel deployment guide](docs/deployment-vercel.md).
 
 ## Commands
 
@@ -191,7 +191,7 @@ Health check: `GET /api/health` (checks API + database).
 - **Validation is syntactic only.** No HTTP fetch, render, or tag-firing checks are executed; the data model reserves those evidence kinds for later, and nothing is ever labeled "live" or "verified" without executed evidence.
 - **Export-first.** No live writes to ad platforms; presets produce platform-shaped output you paste into the platform yourself.
 - **HubSpot sync requires `HUBSPOT_ACCESS_TOKEN`.** Without it, sync events stay safely queued in the outbox.
-- **SSO pending.** The SSO provider is a stub awaiting Runpod IdP approval; production cannot ship until it is implemented (dev provider refuses production).
+- **SSO infrastructure approval pending.** The application verifies the signed-principal proxy contract, but Production and Preview cannot ship until the approved IdP/proxy is configured with isolated secrets and spoofing protection.
 - **E2E coverage is API-level**, not browser-driven.
 - **Extension distribution is not automated.** The source package is ready for a private Chrome Web Store or managed-enterprise release after Runpod assigns and allowlists the production extension ID.
 - **MCP currently uses personal bearer tokens.** Tokens are user-scoped, hashed at rest, expire within 90 days, and can be revoked; replace with organization-standard OAuth when that provider is approved.

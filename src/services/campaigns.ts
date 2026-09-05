@@ -12,9 +12,11 @@ import { prefixedUlid } from "@/core/ids";
 import { recordAudit } from "./audit";
 import { assertCanManage, assertCanWrite, type SessionUser } from "./auth";
 import { enqueueOutboxEvent } from "./outbox";
+import { resolveRecordOwner } from "./users";
 
 export interface CampaignInput {
   name: string;
+  ownerId?: string;
   utmCampaign?: string; // defaults to canonicalized name
   initiativeId?: string | null;
   product?: string | null;
@@ -72,6 +74,7 @@ export async function createCampaign(db: Db, actor: SessionUser, input: Campaign
   const name = input.name?.trim();
   if (!name) throw new Error("Campaign name is required.");
   const utmCampaign = canonicalUtmValue(input.utmCampaign?.trim() || name);
+  const ownerId = await resolveRecordOwner(db, actor, input.ownerId);
   const duplicateCandidates = await findCampaignDuplicates(db, { name, utmCampaign });
   if (duplicateCandidates.length > 0 && input.duplicateAction !== "override") {
     throw new CampaignDuplicateError(duplicateCandidates);
@@ -101,7 +104,7 @@ export async function createCampaign(db: Db, actor: SessionUser, input: Campaign
         name,
         utmCampaign,
         initiativeId: input.initiativeId ?? null,
-        ownerId: actor.id,
+        ownerId,
         product: input.product ?? null,
         campaignType: input.campaignType ?? null,
         startDate: input.startDate ? new Date(input.startDate) : null,
@@ -169,6 +172,12 @@ export async function updateCampaign(
     const before = existing[0];
     if (!before) throw new Error("Campaign not found.");
     assertCanManage(actor, { createdBy: before.createdBy, ownerId: before.ownerId }, "campaign");
+    const ownerId = patch.ownerId !== undefined
+      ? await resolveRecordOwner(tx as Db, actor, patch.ownerId, before.ownerId ?? before.createdBy)
+      : before.ownerId;
+    if (ownerId !== before.ownerId && !reason?.trim()) {
+      throw new Error("A reason is required to transfer campaign ownership.");
+    }
     // The canonical ID and utm_campaign slug are immutable after creation;
     // metadata (name, owner, dates, lifecycle) may change freely.
     const [row] = await tx
@@ -176,6 +185,7 @@ export async function updateCampaign(
       .set({
         name: patch.name?.trim() || before.name,
         initiativeId: patch.initiativeId !== undefined ? patch.initiativeId : before.initiativeId,
+        ownerId,
         product: patch.product !== undefined ? patch.product : before.product,
         campaignType: patch.campaignType !== undefined ? patch.campaignType : before.campaignType,
         startDate: patch.startDate !== undefined ? (patch.startDate ? new Date(patch.startDate) : null) : before.startDate,
@@ -192,7 +202,7 @@ export async function updateCampaign(
       idempotencyKey: `warehouse.snapshot.campaign:${row.id}:${row.updatedAt.toISOString()}`,
     });
     await recordAudit(tx, actor, {
-      action: "campaign.updated",
+      action: ownerId !== before.ownerId ? "campaign.owner_transferred" : "campaign.updated",
       entityType: "campaign",
       entityId: id,
       before,

@@ -7,7 +7,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Badge, CopyButton, Msg } from "../../components";
+import { Badge, CopyButton, Msg, useSession } from "../../components";
 import {
   api,
   errText,
@@ -17,33 +17,46 @@ import {
   type Campaign,
   type CampaignMapping,
   type LinkSearchResult,
+  type UserRec,
 } from "../../lib";
 
 interface CampaignDetail {
   campaign: Campaign;
   mappings: CampaignMapping[];
+  permissions: { canManage: boolean; canTransferOwnership: boolean };
 }
 
 export default function CampaignDetailPage() {
+  const { capabilities } = useSession();
   const params = useParams<{ id: string }>();
   const id = params?.id ?? "";
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
   const [links, setLinks] = useState<LinkSearchResult | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState<UserRec[]>([]);
+  const [ownerId, setOwnerId] = useState("");
+  const [ownerReason, setOwnerReason] = useState("");
+  const [savingOwner, setSavingOwner] = useState(false);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     (async () => {
       try {
-        const [d, l] = await Promise.all([
+        const [d, l, u] = await Promise.all([
           api<CampaignDetail>(`/api/campaigns/${id}`),
           api<LinkSearchResult>(`/api/links${qs({ campaignId: id, pageSize: 100 })}`),
+          capabilities.canAdminister
+            ? api<{ users: UserRec[] }>("/api/admin/users")
+            : Promise.resolve({ users: [] }),
         ]);
         if (!cancelled) {
           setDetail(d);
           setLinks(l);
+          setUsers(u.users.filter((user) => user.active && user.role !== "investigator"));
+          setOwnerId(d.campaign.ownerId ?? "");
         }
       } catch (err) {
         if (!cancelled) setError(errText(err));
@@ -54,10 +67,30 @@ export default function CampaignDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, capabilities.canAdminister]);
+
+  async function transferOwnership() {
+    if (!ownerId || !ownerReason.trim()) return;
+    setSavingOwner(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api<{ campaign: Campaign }>(`/api/campaigns/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ownerId, reason: ownerReason.trim() }),
+      });
+      setDetail((current) => current ? { ...current, campaign: result.campaign } : current);
+      setOwnerReason("");
+      setNotice("Campaign ownership updated and recorded in the audit log.");
+    } catch (err) {
+      setError(errText(err));
+    } finally {
+      setSavingOwner(false);
+    }
+  }
 
   if (loading) return <p aria-live="polite">Loading campaign…</p>;
-  if (error) return <Msg kind="error">{error}</Msg>;
+  if (error && !detail) return <Msg kind="error">{error}</Msg>;
   if (!detail) return null;
 
   const { campaign, mappings } = detail;
@@ -69,6 +102,8 @@ export default function CampaignDetailPage() {
         <Badge value={campaign.lifecycle} /> utm_campaign:{" "}
         <span className="mono">{campaign.utmCampaign}</span>
       </p>
+      <Msg kind="success">{notice}</Msg>
+      <Msg kind="error">{error}</Msg>
 
       <div className="card">
         <h2>utm_id (campaign ID)</h2>
@@ -121,12 +156,37 @@ export default function CampaignDetailPage() {
                   <td>{campaign.description ?? <span className="muted">—</span>}</td>
                 </tr>
                 <tr>
+                  <th scope="row">Owner</th>
+                  <td>{users.find((user) => user.id === campaign.ownerId)?.email ?? campaign.ownerId ?? <span className="muted">Unassigned</span>}</td>
+                </tr>
+                <tr>
                   <th scope="row">Created</th>
                   <td>{fmtDateTime(campaign.createdAt)}</td>
                 </tr>
               </tbody>
             </table>
           </div>
+          {detail.permissions.canTransferOwnership ? (
+            <div className="inline-form">
+              <h3>Transfer ownership</h3>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="campaign-owner">New owner</label>
+                  <select id="campaign-owner" value={ownerId} onChange={(event) => setOwnerId(event.target.value)}>
+                    <option value="">Select an active owner…</option>
+                    {users.map((user) => <option key={user.id} value={user.id}>{user.email}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="campaign-owner-reason">Reason (required and audited)</label>
+                  <input id="campaign-owner-reason" value={ownerReason} onChange={(event) => setOwnerReason(event.target.value)} />
+                </div>
+              </div>
+              <button type="button" disabled={savingOwner || !ownerId || !ownerReason.trim() || ownerId === campaign.ownerId} onClick={() => void transferOwnership()}>
+                {savingOwner ? "Saving…" : "Transfer ownership"}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="card">

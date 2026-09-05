@@ -29,8 +29,9 @@ export async function POST(req: Request) {
   if (!identity.userId || !slackIdentityAllowed(identity)) return new Response("Slack workspace is not allowed.", { status: 403 });
   // Require a mapped, active registry account before serving any modal or
   // registry-derived data (campaigns, taxonomy, presets).
+  let actor: Awaited<ReturnType<typeof resolveSlackActor>>;
   try {
-    await resolveSlackActor(await getDb(), identity);
+    actor = await resolveSlackActor(await getDb(), identity);
   } catch (error) {
     return Response.json({
       response_type: "ephemeral",
@@ -39,8 +40,16 @@ export async function POST(req: Request) {
   }
   const text = (form.get("text") ?? "").trim();
   const isBulk = /^bulk(?:\s|$)/i.test(text);
+  if (isBulk && actor.role === "investigator") {
+    return Response.json({
+      response_type: "ephemeral",
+      text: "Your investigator role is read-only. You can preview one URL with /utm, but cannot start a bulk issuance.",
+    });
+  }
   const destination = isBulk ? "" : text.replace(/^single\s+/i, "");
-  const view = isBulk ? await bulkUtmModal(await getDb()) : await singleUtmModal(await getDb(), destination);
+  const view = isBulk
+    ? await bulkUtmModal(await getDb())
+    : await singleUtmModal(await getDb(), destination, { readOnly: actor.role === "investigator" });
   await slackApi("views.open", { trigger_id: form.get("trigger_id"), view });
   return new Response("", { status: 200 });
 }

@@ -14,6 +14,15 @@ export interface Session {
   role: "user" | "admin" | "investigator";
 }
 
+export interface SessionCapabilities {
+  canWrite: boolean;
+  canIssue: boolean;
+  canCreateCampaign: boolean;
+  canCreateInitiative: boolean;
+  canReadAudit: boolean;
+  canAdminister: boolean;
+}
+
 export interface Finding {
   code: string;
   severity: "error" | "warning";
@@ -30,6 +39,7 @@ export interface Initiative {
   endDate: string | null;
   lifecycle: string;
   description: string | null;
+  ownerId: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -46,6 +56,7 @@ export interface Campaign {
   endDate: string | null;
   lifecycle: string;
   description: string | null;
+  ownerId: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

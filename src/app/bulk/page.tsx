@@ -7,7 +7,7 @@
  */
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge, CopyButton, Msg } from "../components";
+import { Badge, CopyButton, Msg, useSession } from "../components";
 import {
   api,
   downloadTextFile,
@@ -39,6 +39,7 @@ const COLUMNS: { key: keyof GridRow; label: string }[] = [
 ];
 
 export default function BulkPage() {
+  const { capabilities } = useSession();
   // Reference data
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -381,7 +382,7 @@ export default function BulkPage() {
           <button
             type="button"
             className="btn-primary"
-            disabled={submitting || !campaignId || effectiveRows.length === 0}
+            disabled={!capabilities.canWrite || submitting || !campaignId || effectiveRows.length === 0}
             onClick={() => void submit()}
           >
             {submitting
@@ -391,6 +392,9 @@ export default function BulkPage() {
           {!campaignId ? <span className="hint">Select a campaign to enable submission.</span> : null}
         </div>
         <Msg kind="error">{submitError}</Msg>
+        {!capabilities.canWrite ? (
+          <Msg kind="info">Read-only access: bulk issuance is unavailable for your role.</Msg>
+        ) : null}
       </div>
 
       <div className="two-col">

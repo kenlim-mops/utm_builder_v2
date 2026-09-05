@@ -1,4 +1,5 @@
 import { getDb } from "@/db/client";
+import { initiativeInputSchema } from "@/contracts/public-api";
 import { requireUser } from "@/services/auth";
 import { createInitiative, listInitiatives } from "@/services/initiatives";
 import { handle, json } from "@/server/http";
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
   return handle(async () => {
     const actor = await requireUser();
     const db = await getDb();
-    const input = await req.json();
+    const input = initiativeInputSchema.parse(await req.json());
     const initiative = await createInitiative(db, actor, input);
     return json({ initiative }, { status: 201 });
   });

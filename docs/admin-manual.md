@@ -36,6 +36,7 @@ There is no delete path in the application, deliberately.
 ## 2. Initiatives and campaigns
 
 - Campaigns are created explicitly (`POST /api/campaigns`); the `rpc_` ID and the canonical `utm_campaign` slug are immutable after creation. Metadata (display name, owner, dates, lifecycle, product, description, initiative attachment) is editable via `PATCH /api/campaigns/{id}`.
+- Administrators can assign an active write-capable owner during creation or transfer ownership later from the campaign/initiative detail page. Transfers require a reason and emit `campaign.owner_transferred` or `initiative.owner_transferred`. Investigators cannot own writable records.
 - Initiatives (`rpi_`) are the optional layer above campaigns; same immutability rule for the ID.
 - Lifecycle values: `planned`, `active`, `completed`, `archived`. Lifecycle is metadata — it does not currently block issuance; retire individual links or disable taxonomy values to stop usage.
 - `utm_campaign` slugs are globally unique (DB constraint). Before insertion, the service also checks active/non-archived campaign names and slugs using a conservative semantic key that collapses case, punctuation, periods, underscores, spaces, and hyphens. Users receive candidates to reuse.
@@ -94,7 +95,7 @@ Change via `POST /api/admin/settings` with `key: "public_param_policy"`. Other s
 |---|---|
 | `user` | Create initiatives/campaigns/links/batches, revise/retire links, search/export the registry |
 | `admin` | Everything, plus: all /admin configuration, user/role management, duplicate override (by default), outbox retry, reconciliation, config export |
-| `investigator` | Read-only access to audit events, outbox/integration state, settings, reconciliation runs. No mutations — enforced server-side in the shared services, so every client (web, API, Slack, MCP, extension) inherits the block, and investigator-minted API tokens are restricted to read-only scopes. |
+| `investigator` | Read-only access to search, previews, audit events, outbox/integration state, settings, and reconciliation runs. No mutations — enforced server-side and reflected in the web, Slack, extension, and API-token interfaces. Investigator-minted tokens are restricted to read-only scopes. |
 
 Manage users via `POST /api/admin/users` (email-keyed upsert: name, role, active). Deactivating (`active: false`) blocks sign-in without deleting history. Role changes are audited with the distinct action `user.role_changed`.
 
@@ -142,7 +143,7 @@ Filter recipes:
 | All config changes in a window | `?entityType=setting&after=...&before=...` (also `taxonomy_source`, `taxonomy_medium`, `platform_preset`, `destination_policy`) |
 | One bulk batch end-to-end | `?q=rpb_...` — batch events plus per-row issuance via correlation IDs `rpb_...:<rowIndex>` |
 
-Useful action names: `link.issued`, `link.draft_created`, `link.revised`, `link.retired`, `link.duplicate_override`, `link.duplicate_reused`, `batch.created`, `batch.completed`, `campaign.created`, `campaign.duplicate_override`, `campaign.updated`, `initiative.created`, `initiative.updated`, `taxonomy.source.created/updated`, `taxonomy.medium.created/updated`, `preset.created/updated`, `destination_policy.created/updated`, `setting.updated`, `user.created/updated/role_changed`, `outbox.retry_requested`, `reconciliation.run`, `config.exported`, `registry.exported`.
+Useful action names: `link.issued`, `link.draft_created`, `link.revised`, `link.retired`, `link.duplicate_override`, `link.duplicate_reused`, `batch.created`, `batch.completed`, `campaign.created`, `campaign.duplicate_override`, `campaign.updated`, `campaign.owner_transferred`, `initiative.created`, `initiative.updated`, `initiative.owner_transferred`, `taxonomy.source.created/updated`, `taxonomy.medium.created/updated`, `preset.created/updated`, `destination_policy.created/updated`, `setting.updated`, `user.created/updated/role_changed`, `outbox.retry_requested`, `reconciliation.run`, `config.exported`, `registry.exported`.
 
 Slack actions use these same events rather than a parallel log. Their correlation IDs begin with `slack:`; the actor is the existing Builder user resolved from the signed Slack user. Review the batch ID for CSV requests. Slack request bodies, bot tokens, signing secrets, and uploaded CSV contents are not copied wholesale into audit events.
 

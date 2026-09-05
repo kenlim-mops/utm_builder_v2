@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CopyButton, Msg } from "@/app/components";
+import { CopyButton, Msg, useSession } from "@/app/components";
 import { api, errText, fmtDate } from "@/app/lib";
 
 interface AccessTokenRow {
@@ -15,17 +15,8 @@ interface AccessTokenRow {
   createdAt: string;
 }
 
-const DEFAULT_SCOPES = [
-  "utm:read",
-  "utm:preview",
-  "utm:issue",
-  "utm:campaigns:write",
-  "utm:initiatives:write",
-  "gtm:read",
-  "gtm:templates",
-];
-
 export default function AccessTokensPage() {
+  const { capabilities } = useSession();
   const [tokens, setTokens] = useState<AccessTokenRow[]>([]);
   const [label, setLabel] = useState("My GTM Data integration");
   const [clientType, setClientType] = useState<"mcp" | "api">("mcp");
@@ -57,7 +48,6 @@ export default function AccessTokensPage() {
           label,
           clientType,
           expiresInDays: days,
-          scopes: DEFAULT_SCOPES,
         }),
       });
       setCreatedToken(result.token);
@@ -94,6 +84,9 @@ export default function AccessTokensPage() {
 
       <Msg kind="error">{error}</Msg>
       <Msg kind="success">{success}</Msg>
+      {!capabilities.canWrite ? (
+        <Msg kind="info">Tokens created for your role are read-only and can search and preview without issuing or changing records.</Msg>
+      ) : null}
 
       {createdToken ? (
         <section className="card" aria-live="polite">

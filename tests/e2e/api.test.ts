@@ -11,7 +11,8 @@ vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) =>
       name === "rp_dev_identity" ? { name, value: currentIdentity } : undefined,
-    set: () => {},
+    set: (_name: string, value: string) => { currentIdentity = value; },
+    delete: () => { currentIdentity = "dev-admin@runpod.io"; },
   }),
 }));
 
@@ -48,6 +49,24 @@ describe("API end-to-end", () => {
     const res = await GET();
     expect(res.status).toBe(200);
     expect((await res.json()).checks.database).toBe("ok");
+  });
+
+  it("returns role capabilities and safely recovers a local dev identity", async () => {
+    const sessionRoute = await import("@/app/api/session/route");
+    asUser("dev-investigator@runpod.io");
+    const readOnly = await sessionRoute.GET();
+    expect((await readOnly.json()).capabilities.canIssue).toBe(false);
+
+    asUser("dev-admin@runpod.io");
+    const invalid = await sessionRoute.POST(
+      jsonRequest("/api/session", "POST", { email: "missing@runpod.io" }),
+    );
+    expect(invalid.status).toBe(400);
+
+    asUser("missing@runpod.io");
+    const reset = await sessionRoute.DELETE();
+    expect(reset.status).toBe(200);
+    expect(currentIdentity).toBe("dev-admin@runpod.io");
   });
 
   it("creates a campaign and issues a link through the shared API", async () => {
@@ -93,6 +112,7 @@ describe("API end-to-end", () => {
     const body = await response.json();
     expect(body.session.email).toBe("dev-user@runpod.io");
     expect(body.session.authMethod).toBe("bearer");
+    expect(body.capabilities.canIssue).toBe(true);
     apiCredentialId = body.session.tokenId;
     expect(response.headers.get("X-Request-ID")).toBeTruthy();
   });

@@ -1,9 +1,16 @@
 const $ = (id) => document.getElementById(id);
-const state = { token: null, expiresAt: 0, campaigns: [], initiatives: [], presets: [], taxonomy: null, idempotencyKey: null, lastLinkId: null };
+const state = { token: null, expiresAt: 0, scopes: [], capabilities: null, campaigns: [], initiatives: [], presets: [], taxonomy: null, idempotencyKey: null, lastLinkId: null };
 
 function baseUrl() { return $("apiBase").value.trim().replace(/\/$/, ""); }
 function status(message, kind = "") { $("status").textContent = message; $("status").className = `status ${kind}`; }
-function setBusy(busy) { $("preview").disabled = busy; $("issue").disabled = busy; }
+function can(capability) { return Boolean(state.capabilities?.[capability]); }
+function setBusy(busy) { $("preview").disabled = busy; $("issue").disabled = busy || !can("canIssue"); }
+function applyCapabilities() {
+  $("issue").disabled = !can("canIssue");
+  $("createInitiativeSection").classList.toggle("hidden", !can("canCreateInitiative"));
+  $("createCampaignSection").classList.toggle("hidden", !can("canCreateCampaign"));
+  $("readOnlyNotice").classList.toggle("hidden", can("canWrite"));
+}
 
 async function ensurePermission() {
   const url = new URL(baseUrl());
@@ -51,8 +58,8 @@ async function connect() {
     const result = new URL(finalUrl);
     if (result.searchParams.get("state") !== oauthState) throw new Error("Sign-in state did not match.");
     const token = await api("/api/v1/auth/extension/token", { method: "POST", body: JSON.stringify({ code: result.searchParams.get("code"), codeVerifier: verifier, redirectUri }) });
-    state.token = token.access_token; state.expiresAt = Date.now() + token.expires_in * 1000;
-    await chrome.storage.session.set({ apiToken: state.token, apiTokenExpiresAt: state.expiresAt });
+    state.token = token.access_token; state.expiresAt = Date.now() + token.expires_in * 1000; state.scopes = (token.scope || "").split(/\s+/).filter(Boolean);
+    await chrome.storage.session.set({ apiToken: state.token, apiTokenExpiresAt: state.expiresAt, apiTokenScopes: state.scopes });
     await initialize(); status("Connected to the Runpod registry.", "success");
   } catch (error) { status(error.message, "error"); }
 }
@@ -143,16 +150,16 @@ async function initialize() {
   $("apiBase").disabled = Boolean(managed.apiBase);
   $("saveBase").disabled = Boolean(managed.apiBase);
   if (managed.apiBase) $("connectionDetail").textContent = "Registry URL is managed by Runpod.";
-  const session = await chrome.storage.session.get(["apiToken","apiTokenExpiresAt","pendingTarget"]);
-  state.token = session.apiToken || null; state.expiresAt = session.apiTokenExpiresAt || 0;
-  if (state.expiresAt <= Date.now()) { state.token=null; await chrome.storage.session.remove(["apiToken","apiTokenExpiresAt"]); }
+  const session = await chrome.storage.session.get(["apiToken","apiTokenExpiresAt","apiTokenScopes","pendingTarget"]);
+  state.token = session.apiToken || null; state.expiresAt = session.apiTokenExpiresAt || 0; state.scopes = session.apiTokenScopes || [];
+  if (state.expiresAt <= Date.now()) { state.token=null; state.scopes=[]; await chrome.storage.session.remove(["apiToken","apiTokenExpiresAt","apiTokenScopes"]); }
   if (session.pendingTarget?.url) $("destination").value=session.pendingTarget.url;
   $("signedOut").classList.toggle("hidden",!!state.token); $("builder").classList.toggle("hidden",!state.token);
-  if (state.token) { try { await api("/api/v1/session"); await loadReferenceData(); $("connectionDetail").textContent="Connected for this browser session."; } catch(error){ state.token=null; await chrome.storage.session.remove(["apiToken","apiTokenExpiresAt"]); $("signedOut").classList.remove("hidden"); $("builder").classList.add("hidden"); status(error.message,"error"); } }
+  if (state.token) { try { const current = await api("/api/v1/session"); state.capabilities = current.capabilities; state.scopes = current.session?.scopes || state.scopes; applyCapabilities(); await loadReferenceData(); $("connectionDetail").textContent=can("canWrite")?"Connected for this browser session.":"Connected with read-only investigator access."; } catch(error){ state.token=null; state.scopes=[]; state.capabilities=null; await chrome.storage.session.remove(["apiToken","apiTokenExpiresAt","apiTokenScopes"]); $("signedOut").classList.remove("hidden"); $("builder").classList.add("hidden"); status(error.message,"error"); } }
 }
 
 $("settingsToggle").addEventListener("click",()=>$("settings").classList.toggle("hidden"));
-$("saveBase").addEventListener("click",async()=>{ if ($("apiBase").disabled) return; await chrome.storage.local.set({apiBase:baseUrl()}); state.token=null; await chrome.storage.session.remove(["apiToken","apiTokenExpiresAt"]); await initialize(); status("Registry URL saved. Connect again."); });
+$("saveBase").addEventListener("click",async()=>{ if ($("apiBase").disabled) return; await chrome.storage.local.set({apiBase:baseUrl()}); state.token=null; state.scopes=[]; state.capabilities=null; await chrome.storage.session.remove(["apiToken","apiTokenExpiresAt","apiTokenScopes"]); await initialize(); status("Registry URL saved. Connect again."); });
 $("connect").addEventListener("click",connect); $("connectPrimary").addEventListener("click",connect);
 $("capture").addEventListener("click",captureTarget); $("preset").addEventListener("change",applyPreset); $("medium").addEventListener("change",updateSources);
 $("preview").addEventListener("click",preview); $("builder").addEventListener("submit",issue);

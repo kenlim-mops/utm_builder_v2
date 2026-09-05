@@ -14,6 +14,8 @@ The Chrome extension is the lowest-friction path for one-off links while someone
 
 The extension never assembles UTMs or mints IDs. It calls `/api/v1/links/preview` and `/api/v1/links`; the registry remains authoritative.
 
+The extension reads server-returned capabilities after sign-in. Investigators receive a read-only token and see preview controls only; issue and campaign/initiative creation controls are hidden or disabled.
+
 ## When to use which entry point
 
 | Need | Best entry point |

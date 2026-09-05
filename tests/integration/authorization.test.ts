@@ -6,6 +6,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db/client";
+import { auditEvents } from "@/db/schema";
 import type { SessionUser } from "@/services/auth";
 import { AuthError } from "@/services/auth";
 import { createPersonalAccessToken } from "@/services/access-tokens";
@@ -85,21 +86,58 @@ describe("ownership enforcement on mutations", () => {
   });
 
   it("allows the creator, the campaign owner, and admins", async () => {
-    // Campaign owned by `user`; link created by `user`.
-    const campaign = await createCampaign(db, user, { name: "Owned By User" });
-    const issued = await issueLink(db, user, request(campaign.id));
-    // Creator can revise.
+    // The admin creates the campaign and link, but explicitly assigns the
+    // campaign to `user`, proving the owner path independently of creator.
+    const campaign = await createCampaign(db, admin, { name: "Owned By User", ownerId: user.id });
+    const issued = await issueLink(db, admin, request(campaign.id));
+    // Campaign owner can revise a link created by somebody else.
     const revised = await reviseLink(
       db,
       user,
       issued.link.id,
       { utmContent: "creator-edit" },
-      "creator edit",
+      "owner edit",
     );
     expect(revised.link.utmContent).toBe("creator-edit");
     // Admin can retire.
     const retired = await retireLink(db, admin, issued.link.id, "admin retire");
     expect(retired.status).toBe("retired");
+  });
+
+  it("supports audited admin ownership transfer and rejects unauthorized owners", async () => {
+    const campaign = await createCampaign(db, admin, { name: "Transfer Campaign" });
+    const initiative = await createInitiative(db, admin, { name: "Transfer Initiative" });
+
+    await expect(
+      updateCampaign(db, admin, campaign.id, { ownerId: user.id }, null),
+    ).rejects.toThrow(/reason/i);
+    const transferredCampaign = await updateCampaign(
+      db,
+      admin,
+      campaign.id,
+      { ownerId: user.id },
+      "Marketing ownership handoff",
+    );
+    expect(transferredCampaign.ownerId).toBe(user.id);
+
+    const transferredInitiative = await updateInitiative(
+      db,
+      admin,
+      initiative.id,
+      { ownerId: user.id },
+      "Program ownership handoff",
+    );
+    expect(transferredInitiative.ownerId).toBe(user.id);
+    const actions = (await db.select({ action: auditEvents.action }).from(auditEvents)).map((row) => row.action);
+    expect(actions).toContain("campaign.owner_transferred");
+    expect(actions).toContain("initiative.owner_transferred");
+
+    await expect(
+      updateCampaign(db, user, campaign.id, { ownerId: admin.id }, "self transfer"),
+    ).rejects.toThrow(AuthError);
+    await expect(
+      updateCampaign(db, admin, campaign.id, { ownerId: investigator.id }, "invalid owner"),
+    ).rejects.toThrow(/read-only/i);
   });
 
   it("blocks non-owners from campaign/initiative metadata updates", async () => {

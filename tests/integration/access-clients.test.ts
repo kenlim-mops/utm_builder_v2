@@ -13,7 +13,7 @@ import { issueLink } from "@/services/links";
 import { sha256Base64Url } from "@/core/tokens";
 import { createUtmMcpServer } from "@/mcp/server";
 import type { ApiSessionUser } from "@/services/auth";
-import { adminActor, freshDb, userActor } from "../helpers";
+import { adminActor, freshDb, investigatorActor, userActor } from "../helpers";
 
 const linkRequest = (campaignId: string) => ({
   destination: "runpod.io/integrated-client",
@@ -97,6 +97,32 @@ describe("API access and integrated clients", () => {
     const definitions = await client.callTool({ name: "gtm_get_data_definition", arguments: { query: "utm_id" } });
     expect(definitions.isError).not.toBe(true);
     expect(JSON.stringify(definitions.content)).toContain("Immutable Runpod campaign identifier");
+
+    await client.close();
+    await server.close();
+  });
+
+  it("does not advertise MCP write tools to a read-only investigator", async () => {
+    const db = await freshDb();
+    const investigator = await investigatorActor(db);
+    const apiActor: ApiSessionUser = {
+      ...investigator,
+      authMethod: "bearer",
+      tokenId: "tok_read_only",
+      scopes: ["utm:read", "utm:preview", "gtm:read"],
+    };
+    const server = createUtmMcpServer(apiActor, async () => db);
+    const client = new Client({ name: "utm-registry-read-only-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    expect(names).toContain("utm_preview_link");
+    expect(names).toContain("utm_search_links");
+    expect(names).not.toContain("utm_issue_link");
+    expect(names).not.toContain("utm_issue_batch");
+    expect(names).not.toContain("utm_create_campaign");
 
     await client.close();
     await server.close();

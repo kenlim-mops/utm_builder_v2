@@ -19,6 +19,8 @@ describe("browser extension package", () => {
     expect(source).toContain("/api/v1/links/preview");
     expect(source).toContain("/api/v1/links");
     expect(source).toContain("Idempotency-Key");
+    expect(source).toContain("current.capabilities");
+    expect(source).toContain("canIssue");
     expect(source).not.toContain("utm_id=");
   });
 });

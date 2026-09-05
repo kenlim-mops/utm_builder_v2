@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bulkUtmModal,
   singleUtmModal,
+  slackErrorBlockId,
   slackIdentityAllowed,
   slackIdentityFromPayload,
   slackStateFileId,
@@ -45,6 +46,14 @@ describe("Slack request handling", () => {
     expect(bulk.callback_id).toBe("utm_bulk_issue");
     expect(JSON.stringify(bulk)).toContain("destination,source,medium,content,term");
     expect(JSON.stringify(bulk)).toContain("file_input");
+
+    const readOnly = await singleUtmModal(db, "runpod.io/pricing", { readOnly: true });
+    expect(JSON.stringify(readOnly)).toContain("investigator role is read-only");
+  });
+
+  it("attaches Slack errors to fields that exist in each modal", () => {
+    expect(slackErrorBlockId("utm_bulk_issue")).toBe("csv");
+    expect(slackErrorBlockId("utm_single_preview")).toBe("destination");
   });
 
   it("requires a Slack user ID and retains tenant identity", () => {

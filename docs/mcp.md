@@ -4,6 +4,8 @@ The remote server is now named **GTM Data MCP**. This page documents its UTM mod
 
 The UTM module lets approved AI clients search, preview, and create governed UTM records through the same registry services as the web app. It complements the browser extension: the extension minimizes clicks for people working in web platforms; MCP helps with conversational and multi-row preparation.
 
+Tool discovery is scope-aware. Read-only investigator tokens advertise search and preview tools but omit create, issue, batch, and template tools that the token cannot execute.
+
 Slack uses two related but distinct paths: `/utm` and Slack shortcuts call the deterministic Builder workflow described in [slack.md](slack.md), while Slackbot connects to the independent GTM Data MCP using Slack identity auth. The bearer endpoint documented below remains for Codex, Claude Code, and other explicitly configured clients.
 
 ## Endpoint and authentication

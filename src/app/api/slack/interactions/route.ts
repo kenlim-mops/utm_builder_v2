@@ -11,6 +11,7 @@ import {
   resolveSlackActor,
   singleUtmModal,
   slackApi,
+  slackErrorBlockId,
   slackErrorMessage,
   slackIdentityAllowed,
   slackIdentityFromPayload,
@@ -36,7 +37,11 @@ function linkInput(state: unknown): LinkRequest {
   };
 }
 
-function confirmationView(input: LinkRequest, preview: Awaited<ReturnType<typeof previewLink>>) {
+function confirmationView(
+  input: LinkRequest,
+  preview: Awaited<ReturnType<typeof previewLink>>,
+  canWrite: boolean,
+) {
   const exact = preview.duplicates.exact;
   const warnings = preview.validation.findings.filter((item) => item.severity === "warning");
   const metadata = JSON.stringify({ mode: exact ? "reuse" : "issue", input, existingLinkId: exact?.linkId ?? null });
@@ -45,14 +50,16 @@ function confirmationView(input: LinkRequest, preview: Awaited<ReturnType<typeof
     callback_id: "utm_single_issue",
     private_metadata: metadata,
     title: plain(exact ? "Duplicate found" : "Confirm governed UTM"),
-    submit: plain(exact ? "Record reuse" : "Issue & log"),
+    ...(canWrite ? { submit: plain(exact ? "Record reuse" : "Issue & log") } : {}),
     close: plain("Cancel"),
     blocks: [
       { type: "section", text: { type: "mrkdwn", text: exact
         ? `An identical governed URL already exists. Reuse and record that decision:\n<${exact.finalUrl}|Open existing governed URL>`
         : `<${preview.finalUrlPreview}|Open URL preview>\n\n*Campaign ID:* \`${preview.utm?.utm_id}\`` } },
       ...(warnings.length ? [{ type: "section", text: { type: "mrkdwn", text: `*Warnings*\n${warnings.map((item) => `• ${item.message}`).join("\n").slice(0, 2700)}` } }] : []),
-      { type: "context", elements: [{ type: "mrkdwn", text: "No registry record is created until you confirm. Exact duplicates are reused, not reissued." }] },
+      { type: "context", elements: [{ type: "mrkdwn", text: canWrite
+        ? "No registry record is created until you confirm. Exact duplicates are reused, not reissued."
+        : "Read-only preview complete. Your investigator role cannot issue or record reuse." }] },
     ],
   };
 }
@@ -88,14 +95,17 @@ async function handlePayload(payload: Record<string, unknown>) {
   // Every interaction type — including typeahead and modal opens — requires a
   // mapped registry account, so workspace members without UTM Builder access
   // cannot enumerate campaigns, presets, or taxonomy.
+  let actor: Awaited<ReturnType<typeof resolveSlackActor>>;
   try {
-    await resolveSlackActor(await getDb(), identity);
+    actor = await resolveSlackActor(await getDb(), identity);
   } catch (error) {
     if (payload.type === "block_suggestion") return json({ options: [] });
     if (payload.type === "view_submission") {
+      const callbackId = (payload.view as { callback_id?: string } | undefined)?.callback_id;
+      const blockId = slackErrorBlockId(callbackId);
       return json({
         response_action: "errors",
-        errors: { destination: `You do not have UTM Builder access: ${slackErrorMessage(error)}`.slice(0, 200) },
+        errors: { [blockId]: `You do not have UTM Builder access: ${slackErrorMessage(error)}`.slice(0, 200) },
       });
     }
     await postSlackDm(identity.userId, `You do not have UTM Builder access: ${slackErrorMessage(error)}`).catch(() => undefined);
@@ -111,9 +121,13 @@ async function handlePayload(payload: Record<string, unknown>) {
   }
 
   if (payload.type === "shortcut") {
+    if (payload.callback_id === "utm_bulk_upload" && actor.role === "investigator") {
+      await postSlackDm(identity.userId, "Your investigator role is read-only. Bulk issuance is unavailable.").catch(() => undefined);
+      return new Response("", { status: 200 });
+    }
     const view = payload.callback_id === "utm_bulk_upload"
       ? await bulkUtmModal(await getDb())
-      : await singleUtmModal(await getDb());
+      : await singleUtmModal(await getDb(), "", { readOnly: actor.role === "investigator" });
     await slackApi("views.open", { trigger_id: payload.trigger_id, view });
     return new Response("", { status: 200 });
   }
@@ -133,7 +147,7 @@ async function handlePayload(payload: Record<string, unknown>) {
         }
         return json({ response_action: "errors", errors: byBlock });
       }
-      return json({ response_action: "update", view: confirmationView(input, preview) });
+      return json({ response_action: "update", view: confirmationView(input, preview, actor.role !== "investigator") });
     } catch (error) {
       return json({ response_action: "errors", errors: { destination: slackErrorMessage(error).slice(0, 200) } });
     }
@@ -161,6 +175,9 @@ async function handlePayload(payload: Record<string, unknown>) {
   }
 
   if (view.callback_id === "utm_bulk_issue") {
+    if (actor.role === "investigator") {
+      return json({ response_action: "errors", errors: { csv: "Your investigator role is read-only; bulk issuance is unavailable." } });
+    }
     const campaignId = slackStateValue(view.state, "campaign");
     const presetKey = slackStateValue(view.state, "preset") || "generic";
     const defaultSource = slackStateValue(view.state, "source");
@@ -197,9 +214,13 @@ export async function POST(req: Request) {
     signingSecret: process.env.SLACK_SIGNING_SECRET,
   })) return new Response("Invalid Slack signature.", { status: 401 });
   const form = new URLSearchParams(rawBody);
+  let payload: Record<string, unknown> = {};
   try {
-    return await handlePayload(JSON.parse(form.get("payload") ?? "{}") as Record<string, unknown>);
+    payload = JSON.parse(form.get("payload") ?? "{}") as Record<string, unknown>;
+    return await handlePayload(payload);
   } catch (error) {
-    return json({ response_action: "errors", errors: { destination: slackErrorMessage(error).slice(0, 200) } });
+    const callbackId = (payload.view as { callback_id?: string } | undefined)?.callback_id;
+    const blockId = slackErrorBlockId(callbackId);
+    return json({ response_action: "errors", errors: { [blockId]: slackErrorMessage(error).slice(0, 200) } });
   }
 }

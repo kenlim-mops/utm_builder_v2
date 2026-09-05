@@ -8,9 +8,11 @@ import type { Db } from "@/db/client";
 import { campaigns, initiatives, links } from "@/db/schema";
 import { recordAudit } from "./audit";
 import { assertCanManage, assertCanWrite, type SessionUser } from "./auth";
+import { resolveRecordOwner } from "./users";
 
 export interface InitiativeInput {
   name: string;
+  ownerId?: string;
   product?: string | null;
   initiativeType?: string | null;
   startDate?: string | null;
@@ -22,13 +24,14 @@ export async function createInitiative(db: Db, actor: SessionUser, input: Initia
   assertCanWrite(actor);
   const name = input.name?.trim();
   if (!name) throw new Error("Initiative name is required.");
+  const ownerId = await resolveRecordOwner(db, actor, input.ownerId);
   return db.transaction(async (tx) => {
     const [row] = await tx
       .insert(initiatives)
       .values({
         id: newId("initiative"),
         name,
-        ownerId: actor.id,
+        ownerId,
         product: input.product ?? null,
         initiativeType: input.initiativeType ?? null,
         startDate: input.startDate ? new Date(input.startDate) : null,
@@ -60,10 +63,17 @@ export async function updateInitiative(
     const before = existing[0];
     if (!before) throw new Error("Initiative not found.");
     assertCanManage(actor, { createdBy: before.createdBy, ownerId: before.ownerId }, "initiative");
+    const ownerId = patch.ownerId !== undefined
+      ? await resolveRecordOwner(tx as Db, actor, patch.ownerId, before.ownerId ?? before.createdBy)
+      : before.ownerId;
+    if (ownerId !== before.ownerId && !reason?.trim()) {
+      throw new Error("A reason is required to transfer initiative ownership.");
+    }
     const [row] = await tx
       .update(initiatives)
       .set({
         name: patch.name?.trim() || before.name,
+        ownerId,
         product: patch.product !== undefined ? patch.product : before.product,
         initiativeType:
           patch.initiativeType !== undefined ? patch.initiativeType : before.initiativeType,
@@ -76,7 +86,7 @@ export async function updateInitiative(
       .where(eq(initiatives.id, id))
       .returning();
     await recordAudit(tx, actor, {
-      action: "initiative.updated",
+      action: ownerId !== before.ownerId ? "initiative.owner_transferred" : "initiative.updated",
       entityType: "initiative",
       entityId: id,
       before,

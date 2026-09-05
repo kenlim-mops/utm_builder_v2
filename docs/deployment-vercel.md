@@ -29,7 +29,8 @@ Requirements regardless of provider:
 | Variable | Environment | Value | Notes |
 |---|---|---|---|
 | `DATABASE_URL` | Production, Preview | `postgres://user:pass@host:5432/db` | Required in production. When unset, the app falls back to embedded PGlite — local dev only, never acceptable on Vercel. |
-| `AUTH_PROVIDER` | Production | `sso` | The dev provider unconditionally refuses to run in a production build; there is no override. |
+| `AUTH_PROVIDER` | Production, Preview | `sso` | The dev provider unconditionally refuses to run in a production build; Vercel Preview deployments therefore require SSO too. |
+| `SSO_HEADER_SECRET` | Production, Preview | `<independent long random secret per environment>` | Shared only with the approved identity-aware proxy. Never expose it to clients or reuse the Production value in Preview. |
 | `OUTBOX_PROCESS_TOKEN` | Production, Preview | `<long random secret>` | Bearer token protecting `/api/outbox/process`. Required — the route rejects everything when no token is configured. |
 | `CRON_SECRET` | Production | `<long random secret>` | Vercel automatically sends this as `Authorization: Bearer` on both scheduled routes. |
 | `SOURCE_SYNC_TOKEN` | Production, Preview | `<long random secret>` | Optional separate operator token for manually invoking `/api/source-sync`; the route also accepts `CRON_SECRET`. |
@@ -47,12 +48,22 @@ Reference: `.env.example`.
 
 ## 4. SSO integration contract
 
-Production auth requires implementing `ssoProvider()` in `src/services/auth.ts` (currently a stub that throws 401 until the Runpod IdP is approved). Contract:
+The application includes a fail-closed signed-principal SSO adapter. An approved identity-aware proxy must authenticate the user and overwrite these headers before traffic reaches the application:
 
-1. **Verify the principal server-side** — via the IdP SDK, a validated session token, or a *signed* header from a Runpod-approved authenticating proxy. **Never trust client-supplied headers** (`x-user-email` etc.) — anything a browser can set, an attacker can set.
+- `x-runpod-auth-email`: verified work email, normalized to lowercase
+- `x-runpod-auth-timestamp`: current Unix timestamp in seconds
+- `x-runpod-auth-signature`: `v1=` followed by the lowercase hex HMAC-SHA256 of `<timestamp>\n<email>` using `SSO_HEADER_SECRET`
+
+The application rejects missing or invalid signatures and timestamps outside a five-minute window. Production and Preview must use different secrets and databases. The proxy must strip all client-supplied copies of these headers before writing its own values.
+
+Integration contract:
+
+1. **Verify the principal before signing** — the proxy must validate the IdP session and sign only the verified email. Never pass through browser-supplied identity headers.
 2. **Map the verified principal to a `users` row** (email-keyed). No row or `active = false` → treat as unauthenticated. Decide explicitly whether to auto-provision first-time users as role `user` or require admin pre-provisioning via `POST /api/admin/users`.
 3. **Return `{ id, email, name, role }` with the role read from the database**, never from IdP claims. Role management stays in /admin and stays audited.
-4. All enforcement remains server-side through `requireUser`/`requireRole`; do not add client-side shortcuts.
+4. All enforcement remains server-side through `requireUser`/`requireRole`. Client capabilities improve the interface but are not authorization controls.
+5. Test direct access to the application origin without the proxy and confirm it returns 401.
+6. Enforce shared rate limits for `/api/v1/auth/extension/token` and `/api/session` at the proxy/WAF. The application limiter is bounded and protects each instance, but is deliberately not a distributed quota store.
 
 ## 5. Migrations strategy
 
@@ -152,9 +163,9 @@ Also take periodic config exports (`GET /api/admin/export`) as a lightweight, di
 ## 12. Production readiness checklist
 
 - [ ] Runpod-approved PostgreSQL provider provisioned, PITR enabled and tested
-- [ ] `DATABASE_URL`, `AUTH_PROVIDER=sso`, `OUTBOX_PROCESS_TOKEN`, `CRON_SECRET` set in Production env
+- [ ] `DATABASE_URL`, `AUTH_PROVIDER=sso`, `SSO_HEADER_SECRET`, `OUTBOX_PROCESS_TOKEN`, and `CRON_SECRET` set in Production, with separate required values in Preview
 - [ ] Any pilot-enabled optional client is approved and configured: Slack allowlist, extension ID/distribution, and/or API/MCP token ownership. Unused clients remain disabled.
-- [ ] `ssoProvider()` implemented against the approved IdP; client-header spoofing verified impossible
+- [ ] Approved identity proxy emits the signed principal headers; direct and spoofed-header access verified impossible
 - [ ] `ALLOW_INSECURE_DEV` **not** set anywhere in production (it is ignored in production builds, but keep configs clean)
 - [ ] `EXTENSION_IDS`, `SLACK_ALLOWED_TEAM_IDS`/`SLACK_ALLOWED_ENTERPRISE_IDS` configured — these now fail closed when unset in every environment unless `ALLOW_INSECURE_DEV=true` is explicitly set outside production
 - [ ] Migrations applied via explicit release step; seed run once; dev identities deactivated
